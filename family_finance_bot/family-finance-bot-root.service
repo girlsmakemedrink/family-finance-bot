@@ -1,0 +1,19 @@
+[Unit]
+Description=Family Finance Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/family_finance_bot
+Environment="PATH=/root/family_finance_bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/root/family_finance_bot/venv/bin/python /root/family_finance_bot/main.py
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=family-finance-bot
+
+[Install]
+WantedBy=multi-user.target
+
