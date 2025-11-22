@@ -1,0 +1,32 @@
+[Unit]
+Description=Family Finance Telegram Bot
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=botuser
+Group=botuser
+WorkingDirectory=/opt/family-finance-bot
+Environment="PATH=/opt/family-finance-bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/family-finance-bot/.env
+ExecStart=/opt/family-finance-bot/venv/bin/python /opt/family-finance-bot/main.py
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=family-finance-bot
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/family-finance-bot/logs /opt/family-finance-bot/family_finance.db
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
+

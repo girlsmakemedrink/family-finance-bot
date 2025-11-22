@@ -1,0 +1,31 @@
+# Telegram Bot Framework
+# python-telegram-bot 21.0.1 имеет проблемы с Python 3.13
+# Используем версию 21.1+ или отключаем job_queue
+python-telegram-bot[all]>=21.1
+
+# Database
+sqlalchemy>=2.0.25  # 2.0.25+ для совместимости с Python 3.13
+greenlet>=3.0.0  # Требуется для SQLAlchemy async с Python 3.13
+alembic==1.13.0
+# PostgreSQL (для продакшена, опционально для разработки)
+# psycopg2-binary>=2.9.10  # Для Python 3.13+
+# Или используйте SQLite для разработки (уже поддерживается через aiosqlite)
+aiosqlite==0.19.0  # Для async SQLite
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+
+# Code Quality
+black==23.12.1
+flake8==6.1.0
+mypy==1.7.1
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+

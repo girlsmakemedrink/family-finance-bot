@@ -1,0 +1,685 @@
+"""Settings command handler for user preferences."""
+
+import logging
+from typing import Dict, Optional
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
+
+from bot.database import crud, get_db
+from bot.utils.constants import (
+    CURRENCY_MAPPING,
+    DATE_FORMAT_MAPPING,
+    MAX_AMOUNT,
+    MSG_INVALID_AMOUNT,
+    MSG_INVALID_FORMAT,
+    TIME_MAPPING,
+    TIMEZONE_MAPPING,
+)
+from bot.utils.keyboards import (
+    get_currency_keyboard,
+    get_date_format_keyboard,
+    get_monthly_summary_time_keyboard,
+    get_settings_keyboard,
+    get_timezone_keyboard,
+)
+from bot.utils.message_utils import MessageHandler as MsgHandler, ValidationHelper
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def _create_settings_text(user) -> str:
+    """Create settings display text for user.
+    
+    Args:
+        user: User object from database
+        
+    Returns:
+        Formatted settings text
+    """
+    from bot.utils.formatters import format_amount
+    
+    text = (
+        "⚙️ <b>Настройки</b>\n\n"
+        f"💱 <b>Валюта:</b> {user.currency}\n"
+        f"🌍 <b>Часовой пояс:</b> {user.timezone}\n"
+        f"📅 <b>Формат даты:</b> {user.date_format}\n"
+        f"📊 <b>Месячная сводка:</b> "
+        f"{'✅ Включена' if user.monthly_summary_enabled else '❌ Выключена'}"
+    )
+    
+    if user.monthly_summary_enabled and user.monthly_summary_time:
+        text += f" (1-го числа в {user.monthly_summary_time})"
+    
+    text += "\n🚨 <b>Порог больших трат:</b> "
+    if user.large_expense_threshold:
+        text += format_amount(user.large_expense_threshold)
+    else:
+        text += "Не установлен"
+    
+    text += "\n\nВыберите параметр для изменения:"
+    
+    return text
+
+
+async def _get_user_or_error(update: Update, message) -> Optional[object]:
+    """Get user from database or return None with error message.
+    
+    Args:
+        update: Telegram update object
+        message: Message object to reply to
+        
+    Returns:
+        User object or None if not found
+    """
+    if not update.effective_user:
+        return None
+    
+    telegram_id = update.effective_user.id
+    
+    async for session in get_db():
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+        
+        if not user:
+            await message.reply_text(
+                "❌ Ошибка: пользователь не найден. Используйте /start для регистрации."
+            )
+            return None
+        
+        return user
+
+
+async def _update_user_setting(telegram_id: int, **kwargs) -> bool:
+    """Update user settings in database.
+    
+    Args:
+        telegram_id: User's Telegram ID
+        **kwargs: Settings to update
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    async for session in get_db():
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+        
+        if not user:
+            return False
+        
+        await crud.update_user_settings(session, user.id, **kwargs)
+        await session.commit()
+        return True
+
+
+def _get_value_from_mapping(
+    callback_data: str,
+    mapping: Dict[str, str]
+) -> Optional[str]:
+    """Get value from mapping by callback data.
+    
+    Args:
+        callback_data: Callback query data
+        mapping: Dictionary mapping callback_data to values
+        
+    Returns:
+        Mapped value or None if not found
+    """
+    return mapping.get(callback_data)
+
+
+# ============================================================================
+# Main Settings Handler
+# ============================================================================
+
+async def settings_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle the /settings command.
+    
+    Shows user settings menu.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.effective_user:
+        return
+    
+    message = update.message or update.callback_query.message
+    if not message:
+        return
+    
+    telegram_id = update.effective_user.id
+    
+    logger.info(f"User {telegram_id} opened settings")
+    
+    async for session in get_db():
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+        
+        if not user:
+            await message.reply_text(
+                "❌ Ошибка: пользователь не найден. Используйте /start для регистрации."
+            )
+            return
+        
+        settings_text = _create_settings_text(user)
+        keyboard = get_settings_keyboard()
+        
+        if update.callback_query:
+            await update.callback_query.answer()
+            await message.edit_text(
+                settings_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            await message.reply_text(
+                settings_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+
+
+# ============================================================================
+# Currency Settings
+# ============================================================================
+
+async def settings_currency_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Show currency selection menu.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.callback_query.message:
+        return
+    
+    await update.callback_query.answer()
+    
+    text = (
+        "💱 <b>Выбор валюты</b>\n\n"
+        "Выберите валюту для отображения сумм:"
+    )
+    
+    keyboard = get_currency_keyboard()
+    
+    await update.callback_query.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+
+async def currency_selection_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle currency selection.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.effective_user:
+        return
+    
+    callback_data = update.callback_query.data
+    currency = _get_value_from_mapping(callback_data, CURRENCY_MAPPING)
+    
+    if not currency:
+        await update.callback_query.answer("❌ Неизвестная валюта")
+        return
+    
+    telegram_id = update.effective_user.id
+    success = await _update_user_setting(telegram_id, currency=currency)
+    
+    if success:
+        await update.callback_query.answer(f"✅ Валюта изменена на {currency}")
+        await settings_command(update, context)
+    else:
+        await update.callback_query.answer("❌ Пользователь не найден")
+
+
+# ============================================================================
+# Timezone Settings
+# ============================================================================
+
+async def settings_timezone_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Show timezone selection menu.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.callback_query.message:
+        return
+    
+    await update.callback_query.answer()
+    
+    text = (
+        "🌍 <b>Выбор часового пояса</b>\n\n"
+        "Выберите ваш часовой пояс:"
+    )
+    
+    keyboard = get_timezone_keyboard()
+    
+    await update.callback_query.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+
+async def timezone_selection_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle timezone selection.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.effective_user:
+        return
+    
+    callback_data = update.callback_query.data
+    timezone = _get_value_from_mapping(callback_data, TIMEZONE_MAPPING)
+    
+    if not timezone:
+        await update.callback_query.answer("❌ Неизвестный часовой пояс")
+        return
+    
+    telegram_id = update.effective_user.id
+    success = await _update_user_setting(telegram_id, timezone=timezone)
+    
+    if success:
+        await update.callback_query.answer("✅ Часовой пояс изменен")
+        await settings_command(update, context)
+    else:
+        await update.callback_query.answer("❌ Пользователь не найден")
+
+
+# ============================================================================
+# Date Format Settings
+# ============================================================================
+
+async def settings_date_format_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Show date format selection menu.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.callback_query.message:
+        return
+    
+    await update.callback_query.answer()
+    
+    text = (
+        "📅 <b>Выбор формата даты</b>\n\n"
+        "Выберите формат отображения дат:"
+    )
+    
+    keyboard = get_date_format_keyboard()
+    
+    await update.callback_query.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+
+async def date_format_selection_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle date format selection.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.effective_user:
+        return
+    
+    callback_data = update.callback_query.data
+    date_format = _get_value_from_mapping(callback_data, DATE_FORMAT_MAPPING)
+    
+    if not date_format:
+        await update.callback_query.answer("❌ Неизвестный формат")
+        return
+    
+    telegram_id = update.effective_user.id
+    success = await _update_user_setting(telegram_id, date_format=date_format)
+    
+    if success:
+        await update.callback_query.answer("✅ Формат даты изменен")
+        await settings_command(update, context)
+    else:
+        await update.callback_query.answer("❌ Пользователь не найден")
+
+
+# ============================================================================
+# Monthly Summary Settings
+# ============================================================================
+
+async def settings_monthly_summary_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Show monthly summary settings menu.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.callback_query.message:
+        return
+    
+    await update.callback_query.answer()
+    
+    text = (
+        "📊 <b>Месячная сводка расходов</b>\n\n"
+        "1-го числа каждого месяца вы будете получать детальную сводку "
+        "по всем расходам за <b>предыдущий месяц</b>.\n\n"
+        "Сводка включает:\n"
+        "• 💰 Общую сумму расходов\n"
+        "• 📊 Разбивку по категориям\n"
+        "• 📈 Сравнение с предыдущим месяцем\n"
+        "• 🏆 Топ категории расходов\n\n"
+        "Выберите время отправки:"
+    )
+    
+    keyboard = get_monthly_summary_time_keyboard()
+    
+    await update.callback_query.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+
+async def monthly_summary_time_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle monthly summary time selection.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not update.callback_query or not update.effective_user:
+        return
+    
+    callback_data = update.callback_query.data
+    telegram_id = update.effective_user.id
+    
+    # Handle disable option
+    if callback_data == "summary_disable":
+        success = await _update_user_setting(
+            telegram_id,
+            monthly_summary_enabled=False,
+            monthly_summary_time=None
+        )
+        
+        if success:
+            await update.callback_query.answer("✅ Месячная сводка отключена")
+            await settings_command(update, context)
+        else:
+            await update.callback_query.answer("❌ Пользователь не найден")
+        return
+    
+    # Handle time selection
+    time = _get_value_from_mapping(callback_data, TIME_MAPPING)
+    
+    if not time:
+        await update.callback_query.answer("❌ Неизвестное время")
+        return
+    
+    success = await _update_user_setting(
+        telegram_id,
+        monthly_summary_enabled=True,
+        monthly_summary_time=time
+    )
+    
+    if success:
+        await update.callback_query.answer(
+            f"✅ Месячная сводка включена! Будет приходить 1-го числа в {time}"
+        )
+        await settings_command(update, context)
+    else:
+        await update.callback_query.answer("❌ Пользователь не найден")
+
+
+# ============================================================================
+# Threshold Settings
+# ============================================================================
+
+async def settings_threshold_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle threshold setting callback.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    query = update.callback_query
+    if not query or not update.effective_user:
+        return
+    
+    await query.answer()
+    telegram_id = update.effective_user.id
+    
+    logger.info(f"User {telegram_id} opened threshold settings")
+    
+    async for session in get_db():
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+        
+        if not user:
+            await query.edit_message_text("❌ Ошибка: пользователь не найден.")
+            return
+        
+        from bot.utils.formatters import format_amount
+        
+        message = (
+            "🚨 <b>Порог больших трат</b>\n\n"
+            "Установите сумму, при превышении которой все участники семьи "
+            "будут получать уведомление о расходе.\n\n"
+        )
+        
+        if user.large_expense_threshold:
+            message += f"Текущий порог: <b>{format_amount(user.large_expense_threshold)}</b>\n\n"
+        else:
+            message += "Порог не установлен\n\n"
+        
+        message += (
+            "Введите новую сумму или выберите действие:\n"
+            "Например: <code>5000</code>"
+        )
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Отключить уведомления", callback_data="threshold_disable")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="settings")]
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+        
+        # Store state for message handler
+        context.user_data['awaiting_threshold'] = True
+
+
+async def threshold_input_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle threshold amount input.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    if not context.user_data.get('awaiting_threshold'):
+        return
+    
+    message = update.message
+    if not message or not message.text:
+        return
+    
+    telegram_id = update.effective_user.id
+    threshold_str = message.text.strip()
+    
+    # Validate amount
+    is_valid, error_msg, threshold = ValidationHelper.validate_amount(threshold_str, MAX_AMOUNT)
+    
+    if not is_valid:
+        await message.reply_text(error_msg)
+        return
+    
+    async for session in get_db():
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+        
+        if not user:
+            await message.reply_text("❌ Ошибка: пользователь не найден.")
+            return
+        
+        user.large_expense_threshold = threshold
+        await session.commit()
+        
+        from bot.utils.formatters import format_amount
+        from bot.utils.keyboards import get_settings_keyboard
+        
+        await message.reply_text(
+            f"✅ Порог больших трат установлен: <b>{format_amount(threshold)}</b>\n\n"
+            "Теперь вы и другие участники семьи будете получать уведомления "
+            "при расходах, превышающих эту сумму.",
+            parse_mode="HTML",
+            reply_markup=get_settings_keyboard()
+        )
+        
+        context.user_data['awaiting_threshold'] = False
+        logger.info(f"User {telegram_id} set threshold to {threshold}")
+
+
+async def threshold_disable_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle threshold disable callback.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    query = update.callback_query
+    if not query or not update.effective_user:
+        return
+    
+    await query.answer()
+    telegram_id = update.effective_user.id
+    
+    async for session in get_db():
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+        
+        if not user:
+            await query.edit_message_text("❌ Ошибка: пользователь не найден.")
+            return
+        
+        user.large_expense_threshold = None
+        await session.commit()
+        
+        from bot.utils.keyboards import get_settings_keyboard
+        
+        await query.edit_message_text(
+            "✅ Уведомления о больших тратах отключены",
+            reply_markup=get_settings_keyboard()
+        )
+        
+        context.user_data['awaiting_threshold'] = False
+        logger.info(f"User {telegram_id} disabled threshold notifications")
+
+
+# ============================================================================
+# Handler Registration
+# ============================================================================
+
+settings_handler = CommandHandler("settings", settings_command)
+
+settings_callback_handler = CallbackQueryHandler(
+    settings_command,
+    pattern="^settings$"
+)
+
+settings_currency_handler = CallbackQueryHandler(
+    settings_currency_callback,
+    pattern="^settings_currency$"
+)
+
+currency_selection_handler = CallbackQueryHandler(
+    currency_selection_callback,
+    pattern="^currency_(rub|usd|eur|uah)$"
+)
+
+settings_timezone_handler = CallbackQueryHandler(
+    settings_timezone_callback,
+    pattern="^settings_timezone$"
+)
+
+timezone_selection_handler = CallbackQueryHandler(
+    timezone_selection_callback,
+    pattern="^tz_"
+)
+
+settings_date_format_handler = CallbackQueryHandler(
+    settings_date_format_callback,
+    pattern="^settings_date_format$"
+)
+
+date_format_selection_handler = CallbackQueryHandler(
+    date_format_selection_callback,
+    pattern="^date_format_"
+)
+
+settings_monthly_summary_handler = CallbackQueryHandler(
+    settings_monthly_summary_callback,
+    pattern="^settings_monthly_summary$"
+)
+
+monthly_summary_time_handler = CallbackQueryHandler(
+    monthly_summary_time_callback,
+    pattern="^summary_(time_|disable)"
+)
+
+settings_threshold_handler = CallbackQueryHandler(
+    settings_threshold_callback,
+    pattern="^settings_threshold$"
+)
+
+threshold_disable_handler = CallbackQueryHandler(
+    threshold_disable_callback,
+    pattern="^threshold_disable$"
+)
