@@ -873,6 +873,43 @@ async def count_category_expenses(
         raise
 
 
+async def delete_category_expenses(
+    session: AsyncSession,
+    category_id: int
+) -> int:
+    """Delete all expenses in a category.
+    
+    Args:
+        session: Database session
+        category_id: Category ID
+        
+    Returns:
+        Number of expenses deleted
+    """
+    try:
+        from sqlalchemy import delete as sql_delete
+        
+        # Delete all expenses with this category
+        result = await session.execute(
+            sql_delete(Expense)
+            .where(Expense.category_id == category_id)
+        )
+        
+        count = result.rowcount
+        await session.flush()
+        
+        logger.info(
+            f"Deleted {count} expenses from category {category_id}"
+        )
+        
+        return count
+    except Exception as e:
+        logger.error(
+            f"Error deleting expenses from category {category_id}: {e}"
+        )
+        raise
+
+
 async def category_name_exists(
     session: AsyncSession,
     name: str,
