@@ -44,6 +44,9 @@ class ConversationState(IntEnum):
     SELECT_CATEGORY = 1
     ENTER_AMOUNT = 2
     ENTER_DESCRIPTION = 3
+    # Create category during expense addition
+    CREATE_CATEGORY_NAME = 8
+    CREATE_CATEGORY_EMOJI = 9
     # View expenses states
     VIEW_SELECT_FAMILY = 4
     VIEW_SELECT_PERIOD = 5
@@ -59,6 +62,8 @@ class CallbackPattern:
     FAMILY_EXPENSES = "family_expenses"
     SELECT_FAMILY_PREFIX = "select_family_"
     SELECT_CATEGORY_PREFIX = "select_category_"
+    CREATE_NEW_CATEGORY = "create_new_category"
+    NEW_CAT_EMOJI_PREFIX = "new_cat_emoji_"
     SKIP_DESCRIPTION = "skip_description"
     VIEW_FAMILY_PREFIX = "view_family_"
     PERIOD_PREFIX = "period_"
@@ -514,6 +519,12 @@ class KeyboardBuilder:
         if row:
             keyboard.append(row)
         
+        # Add button to create new category
+        keyboard.append([InlineKeyboardButton(
+            f"{Emoji.PLUS} Создать новую категорию",
+            callback_data=CallbackPattern.CREATE_NEW_CATEGORY
+        )])
+        
         keyboard = add_navigation_buttons(keyboard, context)
         return InlineKeyboardMarkup(keyboard)
     
@@ -798,6 +809,171 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
     
     logger.info(f"User selected category {category_id} ({category.name}) for expense")
+    return ConversationState.ENTER_AMOUNT
+
+
+async def create_category_during_expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start creating a new category during expense addition."""
+    query = update.callback_query
+    await query.answer()
+    
+    expense_data = ExpenseData.from_context(context)
+    
+    message = (
+        f"{Emoji.PLUS} <b>Создание новой категории</b>\n"
+        f"{Emoji.FAMILY} Семья: <b>{expense_data.family_name}</b>\n\n"
+        "Введите название новой категории (например: 'Рестораны', 'Такси', 'Спорт'):"
+    )
+    keyboard = add_navigation_buttons([], context, current_state="create_category_name")
+    await query.edit_message_text(message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    logger.info(f"User started creating new category during expense addition for family {expense_data.family_id}")
+    return ConversationState.CREATE_CATEGORY_NAME
+
+
+async def create_category_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle new category name input."""
+    if not update.message or not update.message.text:
+        await update.message.reply_text(ErrorMessage.INVALID_NUMBER)
+        return ConversationState.CREATE_CATEGORY_NAME
+    
+    name = update.message.text.strip()
+    
+    # Validate name length
+    if len(name) < 2:
+        await update.message.reply_text(
+            f"{Emoji.ERROR} Название слишком короткое. Введите минимум 2 символа:"
+        )
+        return ConversationState.CREATE_CATEGORY_NAME
+    
+    if len(name) > 50:
+        await update.message.reply_text(
+            f"{Emoji.ERROR} Название слишком длинное. Максимум 50 символов:"
+        )
+        return ConversationState.CREATE_CATEGORY_NAME
+    
+    expense_data = ExpenseData.from_context(context)
+    
+    # Check if category name already exists
+    async def check_name_exists(session):
+        return await crud.category_name_exists(session, name, expense_data.family_id)
+    
+    exists = await handle_db_operation(check_name_exists, "Error checking category name")
+    
+    if exists:
+        await update.message.reply_text(
+            f"{Emoji.ERROR} Категория с названием '{name}' уже существует.\nВведите другое название:"
+        )
+        return ConversationState.CREATE_CATEGORY_NAME
+    
+    # Save name to context
+    context.user_data['new_category_name'] = name
+    
+    # Get common emojis
+    from bot.handlers.categories import Emoji as CatEmoji
+    emojis = CatEmoji.get_all_common_emojis()
+    
+    # Build emoji keyboard
+    keyboard = []
+    row = []
+    for i, emoji in enumerate(emojis):
+        row.append(InlineKeyboardButton(emoji, callback_data=f"{CallbackPattern.NEW_CAT_EMOJI_PREFIX}{emoji}"))
+        if (i + 1) % 5 == 0:
+            keyboard.append(row)
+            row = []
+    
+    if row:
+        keyboard.append(row)
+    
+    keyboard = add_navigation_buttons(keyboard, context, current_state="create_category_emoji")
+    
+    message = (
+        f"{Emoji.SUCCESS} Название: <b>{name}</b>\n\n"
+        "Теперь выберите иконку для категории из списка ниже "
+        "или отправьте свою (любой эмодзи):"
+    )
+    await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    
+    logger.info(f"User entered new category name: {name}")
+    return ConversationState.CREATE_CATEGORY_EMOJI
+
+
+async def create_category_emoji_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle emoji selection for new category."""
+    expense_data = ExpenseData.from_context(context)
+    category_name = context.user_data.get('new_category_name')
+    
+    if not category_name:
+        await send_or_edit_message(update, ErrorMessage.MISSING_DATA)
+        return ConversationHandler.END
+    
+    # Check if it's a callback (emoji button) or message (custom emoji)
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        emoji = query.data.split("_")[-1]
+    else:
+        emoji = update.message.text.strip()
+        
+        # Validate emoji
+        from bot.handlers.categories import validate_emoji
+        if not validate_emoji(emoji):
+            await update.message.reply_text(
+                f"{Emoji.ERROR} Это не похоже на эмодзи. Попробуйте еще раз или выберите из предложенных:"
+            )
+            return ConversationState.CREATE_CATEGORY_EMOJI
+    
+    # Create the new category
+    async def create_category(session):
+        category = await crud.create_category(
+            session,
+            name=category_name,
+            icon=emoji,
+            family_id=expense_data.family_id
+        )
+        await session.commit()
+        return category
+    
+    category = await handle_db_operation(create_category, "Error creating category")
+    
+    if category is None:
+        error_msg = f"{Emoji.ERROR} Произошла ошибка при создании категории. Попробуйте позже."
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+        return ConversationHandler.END
+    
+    # Update expense data with the new category
+    expense_data.category_id = category.id
+    expense_data.category_name = category.name
+    expense_data.category_icon = category.icon
+    expense_data.save_to_context(context)
+    
+    # Clear temporary data
+    context.user_data.pop('new_category_name', None)
+    
+    # Show success message and proceed to amount input
+    message = MessageBuilder.build_amount_input_message(
+        expense_data.family_name,
+        category.icon,
+        category.name
+    )
+    keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
+    
+    success_msg = (
+        f"{Emoji.SUCCESS} <b>Категория создана!</b>\n\n"
+        f"{emoji} <b>{category_name}</b>\n\n"
+        "Теперь продолжим добавление расхода:\n\n"
+        f"{message}"
+    )
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(success_msg, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await update.message.reply_text(success_msg, parse_mode="HTML", reply_markup=keyboard)
+    
+    logger.info(f"Created category {category.id} ({category_name}) during expense addition")
     return ConversationState.ENTER_AMOUNT
 
 
@@ -1643,7 +1819,15 @@ add_expense_handler = ConversationHandler(
             CallbackQueryHandler(family_selected, pattern=f"^{CallbackPattern.SELECT_FAMILY_PREFIX}\\d+$")
         ],
         ConversationState.SELECT_CATEGORY: [
-            CallbackQueryHandler(category_selected, pattern=f"^{CallbackPattern.SELECT_CATEGORY_PREFIX}\\d+$")
+            CallbackQueryHandler(category_selected, pattern=f"^{CallbackPattern.SELECT_CATEGORY_PREFIX}\\d+$"),
+            CallbackQueryHandler(create_category_during_expense_start, pattern=f"^{CallbackPattern.CREATE_NEW_CATEGORY}$")
+        ],
+        ConversationState.CREATE_CATEGORY_NAME: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, create_category_name_received)
+        ],
+        ConversationState.CREATE_CATEGORY_EMOJI: [
+            CallbackQueryHandler(create_category_emoji_received, pattern=f"^{CallbackPattern.NEW_CAT_EMOJI_PREFIX}"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, create_category_emoji_received)
         ],
         ConversationState.ENTER_AMOUNT: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, amount_received)
