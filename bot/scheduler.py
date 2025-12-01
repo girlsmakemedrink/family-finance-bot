@@ -202,10 +202,20 @@ async def check_and_send_monthly_summaries(bot: Bot) -> None:
             logger.info(f"Found {len(users)} users with monthly summary enabled")
             
             for user in users:
-                # Check if it's time to send (within 1 hour window)
+                # Check if already sent today
+                if user.last_monthly_summary_sent:
+                    last_sent_date = user.last_monthly_summary_sent.date()
+                    today_date = now.date()
+                    if last_sent_date == today_date:
+                        logger.debug(
+                            f"Skipping user {user.id}: monthly summary already sent today ({last_sent_date})"
+                        )
+                        continue
+                
+                # Check if it's time to send (exact hour match)
                 if user.monthly_summary_time:
                     target_hour = int(user.monthly_summary_time.split(':')[0])
-                    if abs(current_hour - target_hour) > 1:
+                    if current_hour != target_hour:
                         logger.debug(
                             f"Skipping user {user.id}: current time {current_time}, "
                             f"target time {user.monthly_summary_time}"
@@ -232,6 +242,11 @@ async def check_and_send_monthly_summaries(bot: Bot) -> None:
                         
                         # Send summary
                         await send_monthly_summary(bot, user, summary, month_name)
+                        
+                        # Update last sent timestamp
+                        user.last_monthly_summary_sent = now
+                        await session.commit()
+                        
                         sent_count += 1
                         
                         # Small delay to avoid rate limiting
