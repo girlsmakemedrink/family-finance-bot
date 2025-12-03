@@ -7,6 +7,7 @@ from enum import IntEnum
 from typing import Optional, List, Tuple
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -510,7 +511,13 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         message_text = ErrorMessage.NOT_REGISTERED
         keyboard = get_home_button()
         if query:
-            await query.message.edit_text(message_text, reply_markup=keyboard)
+            try:
+                await query.message.edit_text(message_text, reply_markup=keyboard)
+            except BadRequest as e:
+                if "no text in the message" in str(e).lower():
+                    await query.message.reply_text(message_text, reply_markup=keyboard)
+                else:
+                    raise
         else:
             await update.message.reply_text(message_text)
         return ConversationHandler.END
@@ -519,7 +526,14 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     keyboard = KeyboardBuilder.build_type_selection_keyboard(context)
     
     if query:
-        await query.message.edit_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+        try:
+            await query.message.edit_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+        except BadRequest as e:
+            # Handle case when message has no text (e.g., media message with caption)
+            if "no text in the message" in str(e).lower():
+                await query.message.reply_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+            else:
+                raise
     else:
         await update.message.reply_text(message_text, reply_markup=keyboard, parse_mode='HTML')
     
