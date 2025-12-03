@@ -4,6 +4,7 @@ import logging
 from typing import Optional, Tuple
 
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from bot.database import crud, get_db
@@ -151,11 +152,22 @@ async def _process_start_command(
         # Send or edit message
         if is_callback and update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.edit_message_text(
-                welcome_message,
-                parse_mode="HTML",
-                reply_markup=reply_markup
-            )
+            try:
+                await update.callback_query.edit_message_text(
+                    welcome_message,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
+            except BadRequest as e:
+                # Handle case when message has no text (e.g., document with caption)
+                if "no text in the message" in str(e).lower():
+                    await update.callback_query.message.reply_text(
+                        welcome_message,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                else:
+                    raise
             logger.info(f"Edited message to show start menu for user {user.id}")
         elif update.message:
             await update.message.reply_text(
