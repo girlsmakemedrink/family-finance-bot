@@ -51,100 +51,80 @@ async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str =
         await asyncio.sleep(0.1)  # Small delay between messages
 
 
-async def send_monthly_summary(bot: Bot, user, summary_data: dict, month_name: str) -> None:
-    """Send monthly summary to user.
+async def send_monthly_summary(bot: Bot, user, summary_data: dict, month_name: str, family_name: str = None) -> None:
+    """Send monthly summary to user with HTML report.
     
     Args:
         bot: Telegram bot instance
         user: User object
         summary_data: Dictionary with summary statistics (from get_user_expenses_detailed_monthly_report)
         month_name: Name of the month (e.g., "Октябрь 2025")
+        family_name: Name of the family (optional)
     """
     try:
         total = summary_data.get('total', Decimal('0'))
-        count = summary_data.get('count', 0)
         by_category = summary_data.get('by_category', [])
         
-        # Start with header and total
+        # Simplified message - just total and categories without details
         message = (
             f"📊 <b>Месячный отчет за {month_name}</b>\n\n"
-            f"💰 <b>Общая сумма расходов:</b> {format_amount(total)}\n\n"
+            f"💰 <b>Общая сумма расходов:</b> {format_amount(total)}\n"
         )
         
         if total == 0:
-            message += "✨ В прошлом месяце не было расходов!\n\n"
+            message += "\n✨ В прошлом месяце не было расходов!"
         elif by_category:
-            # Add category breakdown with chart
-            message += "📈 <b>Расходы по категориям:</b>\n\n"
-            
-            # Get max amount for bar scaling
-            max_amount = max(cat['amount'] for cat in by_category) if by_category else Decimal('0')
+            message += "\n📈 <b>Расходы по категориям:</b>\n\n"
             
             for cat_data in by_category:
                 cat_name = cat_data['category_name']
                 cat_icon = cat_data['category_icon']
                 amount = cat_data['amount']
                 percentage = cat_data.get('percentage', 0)
-                expenses = cat_data.get('expenses', [])
                 
-                # Category header with total and percentage
-                message += f"{cat_icon} <b>{cat_name}</b>\n"
-                message += f"💵 {format_amount(amount)} ({percentage:.1f}%)\n"
-                
-                # Add text bar chart
-                bar = create_text_bar(float(amount), float(max_amount), length=15)
-                message += f"{bar}\n\n"
-                
-                # Add detailed expenses within this category (limit to top 10)
-                if expenses:
-                    message += "📝 <i>Детализация:</i>\n"
-                    expense_count = len(expenses)
-                    for expense in expenses[:10]:  # Show max 10 expenses per category
-                        exp_amount = expense['amount']
-                        exp_description = expense['description']
-                        exp_date = expense['date']
-                        
-                        # Format date
-                        date_str = format_date(exp_date)
-                        
-                        # Truncate long descriptions
-                        if len(exp_description) > 50:
-                            exp_description = exp_description[:47] + "..."
-                        
-                        message += f"  • {date_str}: {format_amount(exp_amount)} - {exp_description}\n"
-                    
-                    # If there are more expenses, show a note
-                    if expense_count > 10:
-                        message += f"  <i>... и еще {expense_count - 10} расходов</i>\n"
-                    
-                    message += "\n"
-            
-            # Add visual chart summary at the end
-            message += "━━━━━━━━━━━━━━━━━━━━━━\n"
-            message += "📊 <b>Диаграмма расходов:</b>\n\n"
-            
-            for cat_data in by_category:
-                cat_name = cat_data['category_name']
-                cat_icon = cat_data['category_icon']
-                percentage = cat_data.get('percentage', 0)
-                
-                # Create percentage bar
-                bar = create_text_bar(percentage, 100, length=15)
-                message += f"{cat_icon} {cat_name}\n"
-                message += f"{bar} {percentage:.1f}%\n\n"
+                message += f"{cat_icon} {cat_name}: {format_amount(amount)} ({percentage:.1f}%)\n"
         
-        message += (
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "💡 <b>Команды:</b>\n"
-            "/stats - Подробная статистика\n"
-            "/my_expenses - Просмотр расходов\n"
-            "/add_expense - Добавить расход"
+        # Send simplified text message
+        await bot.send_message(
+            chat_id=user.telegram_id,
+            text=message,
+            parse_mode="HTML"
         )
         
-        # Send message (using send_long_message to handle long messages)
-        await send_long_message(bot, user.telegram_id, message)
-        
-        logger.info(f"Sent monthly summary to user {user.id} ({user.telegram_id})")
+        # Generate and send HTML report if there are expenses
+        if total > 0:
+            try:
+                from bot.utils.html_report_export import export_monthly_report, generate_report_filename
+                
+                # Generate HTML report
+                html_file = await export_monthly_report(
+                    family_name=family_name or "Семья",
+                    period_name=month_name,
+                    stats=summary_data
+                )
+                
+                filename = generate_report_filename(
+                    family_name=family_name or "monthly_report",
+                    period_name=month_name,
+                    is_personal=True
+                )
+                
+                # Send HTML report as document
+                await bot.send_document(
+                    chat_id=user.telegram_id,
+                    document=html_file,
+                    filename=filename,
+                    caption="📊 Детальный отчет в HTML формате\n\nОткройте файл в браузере для просмотра красиво оформленного отчета"
+                )
+                
+                logger.info(f"Sent monthly summary with HTML report to user {user.id} ({user.telegram_id})")
+                
+            except Exception as e:
+                logger.error(f"Failed to generate/send HTML report for user {user.id}: {e}", exc_info=True)
+                # Continue - at least text message was sent
+                logger.info(f"Sent monthly summary (text only) to user {user.id} ({user.telegram_id})")
+        else:
+            logger.info(f"Sent monthly summary to user {user.id} ({user.telegram_id}) - no expenses")
         
     except TelegramError as e:
         logger.error(f"Failed to send monthly summary to user {user.id}: {e}")
@@ -202,10 +182,20 @@ async def check_and_send_monthly_summaries(bot: Bot) -> None:
             logger.info(f"Found {len(users)} users with monthly summary enabled")
             
             for user in users:
-                # Check if it's time to send (within 1 hour window)
+                # Check if already sent today
+                if user.last_monthly_summary_sent:
+                    last_sent_date = user.last_monthly_summary_sent.date()
+                    today_date = now.date()
+                    if last_sent_date == today_date:
+                        logger.debug(
+                            f"Skipping user {user.id}: monthly summary already sent today ({last_sent_date})"
+                        )
+                        continue
+                
+                # Check if it's time to send (exact hour match)
                 if user.monthly_summary_time:
                     target_hour = int(user.monthly_summary_time.split(':')[0])
-                    if abs(current_hour - target_hour) > 1:
+                    if current_hour != target_hour:
                         logger.debug(
                             f"Skipping user {user.id}: current time {current_time}, "
                             f"target time {user.monthly_summary_time}"
@@ -230,12 +220,17 @@ async def check_and_send_monthly_summaries(bot: Bot) -> None:
                             end_date=last_day_of_previous_month
                         )
                         
-                        # Send summary
-                        await send_monthly_summary(bot, user, summary, month_name)
+                        # Send summary with HTML report
+                        await send_monthly_summary(bot, user, summary, month_name, family.name)
+                        
+                        # Update last sent timestamp
+                        user.last_monthly_summary_sent = now
+                        await session.commit()
+                        
                         sent_count += 1
                         
                         # Small delay to avoid rate limiting
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(0.5)
                         
                     except Exception as e:
                         logger.error(

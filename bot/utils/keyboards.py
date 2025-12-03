@@ -110,41 +110,53 @@ def get_main_menu_keyboard(has_families: bool = False) -> InlineKeyboardMarkup:
     return build_inline_keyboard(buttons)
 
 
-def get_back_button(callback_data: str = "back") -> InlineKeyboardMarkup:
+def get_back_button(callback_data: str = "back", add_home: bool = True) -> InlineKeyboardMarkup:
     """Get keyboard with a single back button.
     
     Args:
         callback_data: Callback data for the back button
+        add_home: Whether to add "Home" button (default: True)
         
     Returns:
         InlineKeyboardMarkup with back button
     """
     buttons = [[("◀️ Назад", callback_data)]]
+    
+    if add_home:
+        buttons.append([("🏠 Главное меню", "start")])
+    
     return build_inline_keyboard(buttons)
 
 
-def get_cancel_button(callback_data: str = "cancel") -> InlineKeyboardMarkup:
+def get_cancel_button(callback_data: str = "cancel", add_home: bool = True) -> InlineKeyboardMarkup:
     """Get keyboard with a single cancel button.
     
     Args:
         callback_data: Callback data for the cancel button
+        add_home: Whether to add "Home" button (default: True)
         
     Returns:
         InlineKeyboardMarkup with cancel button
     """
     buttons = [[("❌ Отмена", callback_data)]]
+    
+    if add_home:
+        buttons.append([("🏠 Главное меню", "start")])
+    
     return build_inline_keyboard(buttons)
 
 
 def get_confirmation_keyboard(
     confirm_callback: str,
-    cancel_callback: str = "cancel"
+    cancel_callback: str = "cancel",
+    add_home: bool = True
 ) -> InlineKeyboardMarkup:
     """Get confirmation keyboard with Yes/No buttons.
     
     Args:
         confirm_callback: Callback data for confirm button
         cancel_callback: Callback data for cancel button
+        add_home: Whether to add "Home" button (default: True)
         
     Returns:
         InlineKeyboardMarkup with confirmation buttons
@@ -152,6 +164,10 @@ def get_confirmation_keyboard(
     buttons = [
         [("✅ Да", confirm_callback), ("❌ Нет", cancel_callback)]
     ]
+    
+    if add_home:
+        buttons.append([("🏠 Главное меню", "start")])
+    
     return build_inline_keyboard(buttons)
 
 
@@ -360,5 +376,15 @@ def get_monthly_summary_time_keyboard() -> InlineKeyboardMarkup:
         [("❌ Отключить", "summary_disable")],
         [("◀️ Назад", "settings")]
     ]
+    return build_inline_keyboard(buttons)
+
+
+def get_home_button() -> InlineKeyboardMarkup:
+    """Get keyboard with a single home button.
+    
+    Returns:
+        InlineKeyboardMarkup with home button
+    """
+    buttons = [[("🏠 Главное меню", "start")]]
     return build_inline_keyboard(buttons)
 

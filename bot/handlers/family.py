@@ -32,7 +32,7 @@ from bot.utils.constants import (
     MSG_WITH_FAMILIES,
 )
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
-from bot.utils.keyboards import add_navigation_buttons, get_main_menu_keyboard
+from bot.utils.keyboards import add_navigation_buttons, get_main_menu_keyboard, get_home_button
 from bot.utils.message_utils import (
     MessageHandler as MsgHandler,
     UserDataExtractor,
@@ -283,12 +283,14 @@ async def create_family_name_received(
     )
     
     if not is_valid:
-        await update.message.reply_text(error_msg)
+        keyboard = get_home_button()
+        await update.message.reply_text(error_msg, reply_markup=keyboard)
         return FAMILY_NAME
     
     user_id = await get_user_id(update, context)
     if not user_id:
-        await update.message.reply_text(ERROR_USER_NOT_FOUND)
+        keyboard = get_home_button()
+        await update.message.reply_text(ERROR_USER_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     # Create family in database
@@ -306,7 +308,8 @@ async def create_family_name_received(
             
             keyboard = [
                 [_create_share_button(family)],
-                [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")]
+                [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -318,8 +321,10 @@ async def create_family_name_received(
             
         except Exception as e:
             logger.error(f"Error creating family: {e}", exc_info=True)
+            keyboard = get_home_button()
             await update.message.reply_text(
-                "❌ Произошла ошибка при создании семьи. Пожалуйста, попробуйте позже."
+                "❌ Произошла ошибка при создании семьи. Пожалуйста, попробуйте позже.",
+                reply_markup=keyboard
             )
     
     return ConversationHandler.END
@@ -374,19 +379,22 @@ async def join_family_code_received(
     
     invite_code = MsgHandler.get_message_text(update)
     if not invite_code:
-        await update.message.reply_text("❌ Пожалуйста, введите код приглашения.")
+        keyboard = get_home_button()
+        await update.message.reply_text("❌ Пожалуйста, введите код приглашения.", reply_markup=keyboard)
         return INVITE_CODE
     
     invite_code = invite_code.upper()
     
     # Validate invite code format
     if not (INVITE_CODE_MIN_LENGTH <= len(invite_code) <= INVITE_CODE_MAX_LENGTH):
-        await update.message.reply_text(MSG_INVITE_CODE_INVALID)
+        keyboard = get_home_button()
+        await update.message.reply_text(MSG_INVITE_CODE_INVALID, reply_markup=keyboard)
         return INVITE_CODE
     
     user_id = await get_user_id(update, context)
     if not user_id:
-        await update.message.reply_text(ERROR_USER_NOT_FOUND)
+        keyboard = get_home_button()
+        await update.message.reply_text(ERROR_USER_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     # Join family in database
@@ -396,15 +404,18 @@ async def join_family_code_received(
             
             if not family:
                 logger.info(f"Family not found for invite code: {invite_code}")
-                await update.message.reply_text(MSG_FAMILY_NOT_FOUND)
+                keyboard = get_home_button()
+                await update.message.reply_text(MSG_FAMILY_NOT_FOUND, reply_markup=keyboard)
                 return INVITE_CODE
             
             # Check if already member
             if getattr(family, '_already_member', False):
                 logger.info(f"User {user_id} is already member of family {family.id}")
+                keyboard = get_home_button()
                 await update.message.reply_text(
                     MSG_ALREADY_MEMBER.format(family_name=family.name),
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    reply_markup=keyboard
                 )
                 return ConversationHandler.END
             
@@ -415,7 +426,8 @@ async def join_family_code_received(
             
             keyboard = [
                 [InlineKeyboardButton("💰 Добавить расход", callback_data="add_expense")],
-                [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")]
+                [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -427,8 +439,10 @@ async def join_family_code_received(
             
         except Exception as e:
             logger.error(f"Error joining family: {e}", exc_info=True)
+            keyboard = get_home_button()
             await update.message.reply_text(
-                "❌ Произошла ошибка при присоединении к семье. Пожалуйста, попробуйте позже."
+                "❌ Произошла ошибка при присоединении к семье. Пожалуйста, попробуйте позже.",
+                reply_markup=keyboard
             )
     
     return ConversationHandler.END
@@ -616,9 +630,11 @@ async def my_families_command(
             
         except Exception as e:
             logger.error(f"Error showing families: {e}", exc_info=True)
+            keyboard = get_home_button()
             await MsgHandler.send_or_edit(
                 update,
-                "❌ Произошла ошибка при получении списка семей."
+                "❌ Произошла ошибка при получении списка семей.",
+                reply_markup=keyboard
             )
 
 
@@ -643,7 +659,8 @@ async def view_family_details(
     
     user_id = await get_user_from_context_or_db(update, context)
     if not user_id:
-        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED)
+        keyboard = get_home_button()
+        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
         return
     
     # Store family_id in context for later use
@@ -655,15 +672,18 @@ async def view_family_details(
             family = await crud.get_family_by_id(session, family_id)
             
             if not family:
-                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND)
+                keyboard = get_home_button()
+                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND, reply_markup=keyboard)
                 return
             
             # Check if user is member
             is_member = await crud.is_user_in_family(session, user_id, family_id)
             if not is_member:
+                keyboard = get_home_button()
                 await MsgHandler.send_or_edit(
                     update,
-                    "❌ Вы не являетесь членом этой семьи."
+                    "❌ Вы не являетесь членом этой семьи.",
+                    reply_markup=keyboard
                 )
                 return
             
@@ -697,9 +717,11 @@ async def view_family_details(
             
         except Exception as e:
             logger.error(f"Error showing family details: {e}", exc_info=True)
+            keyboard = get_home_button()
             await MsgHandler.send_or_edit(
                 update,
-                "❌ Произошла ошибка при получении информации о семье."
+                "❌ Произошла ошибка при получении информации о семье.",
+                reply_markup=keyboard
             )
 
 
@@ -724,7 +746,8 @@ async def leave_family_confirm(
     
     user_id = await get_user_from_context_or_db(update, context)
     if not user_id:
-        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED)
+        keyboard = get_home_button()
+        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
         return
     
     async for session in get_db():
@@ -732,7 +755,8 @@ async def leave_family_confirm(
             family = await crud.get_family_by_id(session, family_id)
             
             if not family:
-                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND)
+                keyboard = get_home_button()
+                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND, reply_markup=keyboard)
                 return
             
             message = (
@@ -754,9 +778,11 @@ async def leave_family_confirm(
             
         except Exception as e:
             logger.error(f"Error showing leave confirmation: {e}", exc_info=True)
+            keyboard = get_home_button()
             await MsgHandler.send_or_edit(
                 update,
-                "❌ Произошла ошибка."
+                "❌ Произошла ошибка.",
+                reply_markup=keyboard
             )
 
 
@@ -781,7 +807,8 @@ async def leave_family_execute(
     
     user_id = await get_user_from_context_or_db(update, context)
     if not user_id:
-        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED)
+        keyboard = get_home_button()
+        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
         return
     
     async for session in get_db():
@@ -809,16 +836,20 @@ async def leave_family_execute(
                 
                 logger.info(f"User {user_id} left family {family_id}")
             else:
+                keyboard = get_home_button()
                 await MsgHandler.send_or_edit(
                     update,
-                    "❌ Ошибка при выходе из семьи. Возможно, вы уже не являетесь её членом."
+                    "❌ Ошибка при выходе из семьи. Возможно, вы уже не являетесь её членом.",
+                    reply_markup=keyboard
                 )
             
         except Exception as e:
             logger.error(f"Error leaving family: {e}", exc_info=True)
+            keyboard = get_home_button()
             await MsgHandler.send_or_edit(
                 update,
-                "❌ Произошла ошибка при выходе из семьи."
+                "❌ Произошла ошибка при выходе из семьи.",
+                reply_markup=keyboard
             )
 
 
@@ -843,7 +874,8 @@ async def delete_family_confirm(
     
     user_id = await get_user_from_context_or_db(update, context)
     if not user_id:
-        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED)
+        keyboard = get_home_button()
+        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
         return
     
     async for session in get_db():
@@ -858,7 +890,8 @@ async def delete_family_confirm(
             family = await crud.get_family_by_id(session, family_id)
             
             if not family:
-                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND)
+                keyboard = get_home_button()
+                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND, reply_markup=keyboard)
                 return
             
             message = (
@@ -885,9 +918,11 @@ async def delete_family_confirm(
             
         except Exception as e:
             logger.error(f"Error showing delete confirmation: {e}", exc_info=True)
+            keyboard = get_home_button()
             await MsgHandler.send_or_edit(
                 update,
-                "❌ Произошла ошибка."
+                "❌ Произошла ошибка.",
+                reply_markup=keyboard
             )
 
 
@@ -912,7 +947,8 @@ async def delete_family_execute(
     
     user_id = await get_user_from_context_or_db(update, context)
     if not user_id:
-        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED)
+        keyboard = get_home_button()
+        await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
         return
     
     async for session in get_db():
@@ -948,13 +984,16 @@ async def delete_family_execute(
                 
                 logger.info(f"User {user_id} deleted family {family_id}")
             else:
-                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND)
+                keyboard = get_home_button()
+                await MsgHandler.send_or_edit(update, MSG_FAMILY_NOT_FOUND, reply_markup=keyboard)
             
         except Exception as e:
             logger.error(f"Error deleting family: {e}", exc_info=True)
+            keyboard = get_home_button()
             await MsgHandler.send_or_edit(
                 update,
-                "❌ Произошла ошибка при удалении семьи."
+                "❌ Произошла ошибка при удалении семьи.",
+                reply_markup=keyboard
             )
 
 

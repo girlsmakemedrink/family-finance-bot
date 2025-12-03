@@ -18,7 +18,8 @@ from telegram.ext import (
 )
 
 from bot.database import crud, get_db
-from bot.utils.export import generate_csv, generate_csv_filename
+# CSV export removed - imports commented out
+# from bot.utils.export import generate_csv, generate_csv_filename
 from bot.utils.formatters import (
     format_amount,
     format_category_summary,
@@ -28,7 +29,7 @@ from bot.utils.formatters import (
     format_family_summary,
 )
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_large_expense
-from bot.utils.keyboards import add_navigation_buttons, get_add_another_keyboard
+from bot.utils.keyboards import add_navigation_buttons, get_add_another_keyboard, get_home_button
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,8 @@ class CallbackPattern:
     PAGE_NEXT = "page_next"
     PAGE_CURRENT = "page_current"
     MY_EXPORT = "my_export"
+    # MY_EXPORT_CSV = "my_export_csv"  # CSV export removed
+    MY_EXPORT_GDOCS = "my_export_gdocs"
     MY_DETAILED_REPORT = "my_detailed_report"
     DETAILED_REPORT_TYPE_PREFIX = "dr_type_"
     DETAILED_REPORT_MONTH_PREFIX = "dr_month_"
@@ -84,6 +87,8 @@ class CallbackPattern:
     FAMILY_PAGE_NEXT = "family_page_next"
     FAMILY_PAGE_CURRENT = "family_page_current"
     FAMILY_EXPORT = "family_export"
+    # FAMILY_EXPORT_CSV = "family_export_csv"  # CSV export removed
+    FAMILY_EXPORT_GDOCS = "family_export_gdocs"
     FAMILY_DETAILED_REPORT = "family_detailed_report"
     CREATE_FAMILY = "create_family"
     JOIN_FAMILY = "join_family"
@@ -106,6 +111,7 @@ class Emoji:
     """Emoji constants."""
     ERROR = "❌"
     SUCCESS = "✅"
+    CHECK = "✅"
     MONEY = "💰"
     FAMILY = "👨‍👩‍👧‍👦"
     CATEGORY = "📂"
@@ -125,6 +131,8 @@ class Emoji:
     LINK = "🔗"
     PLUS = "➕"
     SKIP = "⏭"
+    LOADING = "⏳"
+    USER = "👤"
     USER = "👤"
     USERS = "👥"
     REACTION_THUMB = "👍"
@@ -350,7 +358,7 @@ async def handle_db_operation(operation, error_message: str):
         try:
             result = await operation(session)
             # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
                 # Force load all objects and their attributes
                 result_list = list(result)
                 for obj in result_list:
@@ -587,19 +595,13 @@ class KeyboardBuilder:
         if is_personal:
             keyboard.extend([
                 [InlineKeyboardButton(f"{Emoji.MONEY} Добавить расход", callback_data=CallbackPattern.ADD_EXPENSE)],
-                [
-                    InlineKeyboardButton(f"{Emoji.EXPORT} CSV", callback_data=CallbackPattern.MY_EXPORT),
-                    InlineKeyboardButton(f"📊 Детальный отчет", callback_data=CallbackPattern.MY_DETAILED_REPORT)
-                ],
+                [InlineKeyboardButton(f"📊 Детальный отчет", callback_data=CallbackPattern.MY_DETAILED_REPORT)],
                 [InlineKeyboardButton(f"{Emoji.REFRESH} Выбрать другой период", callback_data=CallbackPattern.MY_EXPENSES)],
                 [InlineKeyboardButton(f"{Emoji.FAMILY} Мои семьи", callback_data=CallbackPattern.MY_FAMILIES)]
             ])
         else:
             keyboard.extend([
-                [
-                    InlineKeyboardButton(f"{Emoji.EXPORT} CSV", callback_data=CallbackPattern.FAMILY_EXPORT),
-                    InlineKeyboardButton(f"📊 Отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)
-                ],
+                [InlineKeyboardButton(f"📊 Детальный отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)],
                 [InlineKeyboardButton(f"{Emoji.MONEY} Добавить расход", callback_data=CallbackPattern.ADD_EXPENSE)],
                 [InlineKeyboardButton(f"{Emoji.REFRESH} Выбрать другой период", callback_data=CallbackPattern.FAMILY_EXPENSES)]
             ])
@@ -662,10 +664,7 @@ class KeyboardBuilder:
         
         # Action buttons
         keyboard.extend([
-            [
-                InlineKeyboardButton(f"{Emoji.EXPORT} CSV", callback_data=CallbackPattern.FAMILY_EXPORT),
-                InlineKeyboardButton(f"📊 Отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)
-            ],
+            [InlineKeyboardButton(f"📊 Детальный отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)],
             [InlineKeyboardButton(f"{Emoji.MONEY} Добавить расход", callback_data=CallbackPattern.ADD_EXPENSE)],
             [InlineKeyboardButton(f"{Emoji.REFRESH} Выбрать другой период", callback_data=CallbackPattern.FAMILY_EXPENSES)]
         ])
@@ -693,7 +692,8 @@ async def add_expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     user_id = await get_user_id(update, context)
     if not user_id:
-        await send_or_edit_message(update, ErrorMessage.NOT_REGISTERED)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.NOT_REGISTERED, reply_markup=keyboard)
         return ConversationHandler.END
     
     async def get_families(session):
@@ -702,7 +702,8 @@ async def add_expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     families = await handle_db_operation(get_families, "Error starting expense adding")
     
     if families is None:
-        await send_or_edit_message(update, ErrorMessage.GENERAL_ERROR)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     if not families:
@@ -748,7 +749,8 @@ async def family_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     family = await handle_db_operation(get_family, f"Error selecting family {family_id}")
     
     if not family:
-        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     expense_data = ExpenseData(family_id=family_id, family_name=family.name)
@@ -768,7 +770,8 @@ async def show_category_selection(update: Update, context: ContextTypes.DEFAULT_
     categories = await handle_db_operation(get_categories, "Error showing categories")
     
     if not categories:
-        await send_or_edit_message(update, ErrorMessage.NO_CATEGORIES)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.NO_CATEGORIES, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_category_selection_message(expense_data.family_name)
@@ -791,7 +794,8 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     category = await handle_db_operation(get_category, f"Error selecting category {category_id}")
     
     if not category:
-        await query.edit_message_text(ErrorMessage.CATEGORY_NOT_FOUND)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.CATEGORY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     expense_data = ExpenseData.from_context(context)
@@ -834,7 +838,8 @@ async def create_category_during_expense_start(update: Update, context: ContextT
 async def create_category_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle new category name input."""
     if not update.message or not update.message.text:
-        await update.message.reply_text(ErrorMessage.INVALID_NUMBER)
+        keyboard = get_home_button()
+        await update.message.reply_text(ErrorMessage.INVALID_NUMBER, reply_markup=keyboard)
         return ConversationState.CREATE_CATEGORY_NAME
     
     name = update.message.text.strip()
@@ -904,7 +909,8 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
     category_name = context.user_data.get('new_category_name')
     
     if not category_name:
-        await send_or_edit_message(update, ErrorMessage.MISSING_DATA)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.MISSING_DATA, reply_markup=keyboard)
         return ConversationHandler.END
     
     # Check if it's a callback (emoji button) or message (custom emoji)
@@ -980,7 +986,8 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
 async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle amount input, optionally with description in the same line."""
     if not update.message or not update.message.text:
-        await update.message.reply_text(ErrorMessage.INVALID_NUMBER)
+        keyboard = get_home_button()
+        await update.message.reply_text(ErrorMessage.INVALID_NUMBER, reply_markup=keyboard)
         return ConversationState.ENTER_AMOUNT
     
     input_text = update.message.text.strip()
@@ -995,7 +1002,8 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             description = parts[1].strip()
             # Validate description length
             if description and len(description) > ValidationLimits.MAX_DESCRIPTION_LENGTH:
-                await update.message.reply_text(ErrorMessage.DESCRIPTION_TOO_LONG)
+                keyboard = get_home_button()
+                await update.message.reply_text(ErrorMessage.DESCRIPTION_TOO_LONG, reply_markup=keyboard)
                 return ConversationState.ENTER_AMOUNT
     
     amount = validate_amount(amount_str)
@@ -1070,15 +1078,67 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         return ConversationHandler.END
     
-    # No description provided - continue to description step
+    # No description provided - save expense immediately without description
+    expense_data.description = None
     expense_data.save_to_context(context)
+    logger.info(f"User entered amount {amount} without description")
     
-    message = MessageBuilder.build_description_input_message(expense_data)
-    keyboard = KeyboardBuilder.build_description_input_keyboard(context)
-    await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
+    # Save expense immediately
+    user_id = await get_user_id(update, context)
     
-    logger.info(f"User entered amount {amount} for expense")
-    return ConversationState.ENTER_DESCRIPTION
+    if not all([user_id, expense_data.family_id, expense_data.category_id, expense_data.amount]):
+        await update.message.reply_text(ErrorMessage.MISSING_DATA)
+        return ConversationHandler.END
+    
+    async def create_expense_and_notify(session):
+        expense = await crud.create_expense(
+            session,
+            user_id=user_id,
+            family_id=expense_data.family_id,
+            category_id=expense_data.category_id,
+            amount=float(expense_data.amount),
+            description=None
+        )
+        await session.commit()
+        
+        user = await crud.get_user_by_id(session, user_id)
+        category = await crud.get_category_by_id(session, expense_data.category_id)
+        family_members = await crud.get_family_members(session, expense_data.family_id)
+        
+        # Send notifications about large expenses
+        await notify_large_expense(session, context.bot, expense, family_members)
+        
+        return expense, user, category
+    
+    result = await handle_db_operation(create_expense_and_notify, "Error creating expense")
+    
+    if result is None:
+        await update.message.reply_text(f"{Emoji.ERROR} Произошла ошибка при сохранении расхода. Пожалуйста, попробуйте позже.")
+        return ConversationHandler.END
+    
+    expense, user, category = result
+    
+    # Update expense_data with category info
+    expense_data.category_name = category.name
+    expense_data.category_icon = category.icon
+    
+    message = MessageBuilder.build_expense_created_message(expense_data, expense, user)
+    reply_markup = get_add_another_keyboard()
+    
+    sent_message = await update.message.reply_text(
+        message,
+        parse_mode="HTML",
+        reply_markup=reply_markup
+    )
+    
+    await set_reaction_safely(sent_message, Emoji.REACTION_THUMB)
+    
+    logger.info(f"Expense created: id={expense.id}, user_id={user_id}, family_id={expense_data.family_id}, amount={expense_data.amount}")
+    
+    # Clear data
+    expense_data.clear_from_context(context)
+    
+    return ConversationHandler.END
 
 
 async def description_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1200,7 +1260,8 @@ async def my_expenses_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     user_id = await get_user_id(update, context)
     if not user_id:
-        await send_or_edit_message(update, ErrorMessage.NOT_REGISTERED)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.NOT_REGISTERED, reply_markup=keyboard)
         return ConversationHandler.END
     
     async def get_families(session):
@@ -1209,7 +1270,8 @@ async def my_expenses_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     families = await handle_db_operation(get_families, "Error starting expense viewing")
     
     if families is None:
-        await send_or_edit_message(update, ErrorMessage.GENERAL_ERROR)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     if not families:
@@ -1255,7 +1317,8 @@ async def view_family_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     family = await handle_db_operation(get_family, f"Error selecting family for viewing {family_id}")
     
     if not family:
-        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     view_data = ViewData(family_id=family_id, family_name=family.name)
@@ -1305,7 +1368,8 @@ async def display_expenses_page(update: Update, context: ContextTypes.DEFAULT_TY
     view_data = ViewData.from_context(context)
     
     if not all([user_id, view_data.family_id]):
-        await send_or_edit_message(update, ErrorMessage.MISSING_DATA)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.MISSING_DATA, reply_markup=keyboard)
         return
     
     start_date, end_date = crud.calculate_date_range(view_data.period)
@@ -1409,52 +1473,147 @@ async def pagination_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         pass  # Just ignore - it's a page indicator
 
 
-async def my_export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle export button for personal expenses."""
+# Export handlers moved to statistics section
+# async def my_export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Handle export button for personal expenses - start HTML export."""
+#     # Redirect directly to HTML export
+#     return await my_export_gdocs_handler(update, context)
+
+
+# CSV export has been removed - only HTML export is now supported
+# async def my_export_csv_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Handle CSV export for personal expenses."""
+#     query = update.callback_query
+#     await query.answer("📊 Генерирую CSV файл...")
+#     
+#     user_id = await get_user_id(update, context)
+#     view_data = ViewData.from_context(context)
+#     
+#     if not all([user_id, view_data.family_id]):
+#         await query.answer(ErrorMessage.MISSING_DATA, show_alert=True)
+#         return
+#     
+#     start_date, end_date = crud.calculate_date_range(view_data.period)
+#     
+#     async def get_all_expenses(session):
+#         return await crud.get_user_expenses(
+#             session,
+#             user_id=user_id,
+#             family_id=view_data.family_id,
+#             start_date=start_date,
+#             end_date=end_date,
+#             limit=None,
+#             offset=0
+#         )
+#     
+#     expenses = await handle_db_operation(get_all_expenses, "Error exporting personal expenses")
+#     
+#     if not expenses:
+#         await query.answer(ErrorMessage.NO_EXPORT_DATA, show_alert=True)
+#         return
+#     
+#     try:
+#         csv_file = generate_csv(expenses, include_user=False)
+#         filename = generate_csv_filename(family_name=view_data.family_name, is_personal=True)
+#         
+#         await context.bot.send_document(
+#             chat_id=query.message.chat_id,
+#             document=csv_file,
+#             filename=filename,
+#             caption=f"📊 Экспорт ваших расходов\n{Emoji.FAMILY} Семья: {view_data.family_name}\n{Emoji.DESCRIPTION} Записей: {len(expenses)}"
+#         )
+#         
+#         logger.info(f"Exported {len(expenses)} personal expenses to CSV for user {user_id}")
+#     except Exception as e:
+#         logger.error(f"Error exporting personal expenses: {e}")
+#         await query.answer(ErrorMessage.EXPORT_ERROR, show_alert=True)
+
+
+# Export handlers moved to statistics section - no longer used from expenses view
+# async def my_export_gdocs_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle HTML report export for personal expenses."""
+    from bot.utils.html_report_export import export_monthly_report, generate_report_filename
+    from datetime import datetime
+    
     query = update.callback_query
-    await query.answer("📊 Генерирую CSV файл...")
+    await query.answer()
+    await query.edit_message_text(f"{Emoji.LOADING} Создаю HTML отчет...")
     
     user_id = await get_user_id(update, context)
     view_data = ViewData.from_context(context)
     
     if not all([user_id, view_data.family_id]):
-        await query.answer(ErrorMessage.MISSING_DATA, show_alert=True)
+        await query.edit_message_text(ErrorMessage.MISSING_DATA)
         return
     
     start_date, end_date = crud.calculate_date_range(view_data.period)
     
-    async def get_all_expenses(session):
-        return await crud.get_user_expenses(
-            session,
-            user_id=user_id,
-            family_id=view_data.family_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=None,
-            offset=0
+    async def get_statistics(session):
+        return await crud.get_period_statistics(
+            session, user_id, start_date, end_date, is_family=False
         )
     
-    expenses = await handle_db_operation(get_all_expenses, "Error exporting personal expenses")
+    stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
     
-    if not expenses:
-        await query.answer(ErrorMessage.NO_EXPORT_DATA, show_alert=True)
+    if not stats or stats.get('total', 0) == 0:
+        await query.edit_message_text(ErrorMessage.NO_EXPORT_DATA)
         return
     
+    # Format period name
+    now = datetime.now()
+    
+    if view_data.period == 'today':
+        period_name = f"Сегодня - {now.strftime('%d.%m.%Y')}"
+    elif view_data.period == 'week':
+        period_name = f"Эта неделя"
+    elif view_data.period == 'month':
+        month_names = {
+            1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+            5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+            9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+        }
+        period_name = f"{month_names[now.month]} {now.year}"
+    elif view_data.period and view_data.period != 'all' and '-' in view_data.period:
+        # Format: "YYYY-MM"
+        month_names = {
+            1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+            5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+            9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+        }
+        year, month = map(int, view_data.period.split('-'))
+        period_name = f"{month_names[month]} {year}"
+    else:
+        period_name = f"Все время"
+    
     try:
-        csv_file = generate_csv(expenses, include_user=False)
-        filename = generate_csv_filename(family_name=view_data.family_name, is_personal=True)
+        html_file = await export_monthly_report(view_data.family_name, period_name, stats)
+        filename = generate_report_filename(view_data.family_name, period_name, is_personal=True)
         
         await context.bot.send_document(
             chat_id=query.message.chat_id,
-            document=csv_file,
+            document=html_file,
             filename=filename,
-            caption=f"📊 Экспорт ваших расходов\n{Emoji.FAMILY} Семья: {view_data.family_name}\n{Emoji.DESCRIPTION} Записей: {len(expenses)}"
+            caption=(
+                f"{Emoji.CHECK} <b>Отчет успешно создан!</b>\n\n"
+                f"{Emoji.FAMILY} Семья: {view_data.family_name}\n"
+                f"{Emoji.CALENDAR} Период: {period_name}\n\n"
+                f"📊 Откройте файл в браузере для просмотра красиво оформленного отчета"
+            ),
+            parse_mode='HTML'
         )
         
-        logger.info(f"Exported {len(expenses)} personal expenses to CSV for user {user_id}")
+        await query.edit_message_text(
+            f"{Emoji.CHECK} Отчет отправлен! Откройте HTML файл в браузере."
+        )
+        
+        logger.info(f"Exported HTML report for user {user_id}")
     except Exception as e:
-        logger.error(f"Error exporting personal expenses: {e}")
-        await query.answer(ErrorMessage.EXPORT_ERROR, show_alert=True)
+        logger.error(f"Error creating HTML report: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"{Emoji.ERROR} <b>Ошибка при создании отчета</b>\n\n"
+            f"Ошибка: {str(e)}\n\n"
+            "Используйте CSV экспорт как альтернативу."
+        )
 
 
 async def cancel_view_expenses(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1485,7 +1644,8 @@ async def family_expenses_start(update: Update, context: ContextTypes.DEFAULT_TY
     
     user_id = await get_user_id(update, context)
     if not user_id:
-        await send_or_edit_message(update, ErrorMessage.NOT_REGISTERED)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.NOT_REGISTERED, reply_markup=keyboard)
         return ConversationHandler.END
     
     async def get_families(session):
@@ -1494,7 +1654,8 @@ async def family_expenses_start(update: Update, context: ContextTypes.DEFAULT_TY
     families = await handle_db_operation(get_families, "Error starting family expense viewing")
     
     if families is None:
-        await send_or_edit_message(update, ErrorMessage.GENERAL_ERROR)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     if not families:
@@ -1540,7 +1701,8 @@ async def family_view_family_selected(update: Update, context: ContextTypes.DEFA
     family = await handle_db_operation(get_family, f"Error selecting family for viewing {family_id}")
     
     if not family:
-        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     view_data = ViewData(family_id=family_id, family_name=family.name)
@@ -1590,7 +1752,8 @@ async def display_family_expenses_page(update: Update, context: ContextTypes.DEF
     view_data = ViewData.from_context(context, prefix="family_view")
     
     if not view_data.family_id:
-        await send_or_edit_message(update, ErrorMessage.MISSING_DATA)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.MISSING_DATA, reply_markup=keyboard)
         return
     
     start_date, end_date = crud.calculate_date_range(view_data.period)
@@ -1742,50 +1905,144 @@ async def family_pagination_handler(update: Update, context: ContextTypes.DEFAUL
         pass  # Just ignore - it's a page indicator
 
 
-async def family_export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle export button for family expenses."""
+# Export handlers moved to statistics section
+# async def family_export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Handle export button for family expenses - start HTML export."""
+#     # Redirect directly to HTML export
+#     return await family_export_gdocs_handler(update, context)
+
+
+# CSV export has been removed - only HTML export is now supported
+# async def family_export_csv_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Handle CSV export for family expenses."""
+#     query = update.callback_query
+#     await query.answer("📊 Генерирую CSV файл...")
+#     
+#     view_data = ViewData.from_context(context, prefix="family_view")
+#     
+#     if not view_data.family_id:
+#         await query.answer(ErrorMessage.MISSING_DATA, show_alert=True)
+#         return
+#     
+#     start_date, end_date = crud.calculate_date_range(view_data.period)
+#     
+#     async def get_all_expenses(session):
+#         return await crud.get_family_expenses_with_users(
+#             session,
+#             family_id=view_data.family_id,
+#             start_date=start_date,
+#             end_date=end_date,
+#             limit=None,
+#             offset=0
+#         )
+#     
+#     expenses = await handle_db_operation(get_all_expenses, "Error exporting family expenses")
+#     
+#     if not expenses:
+#         await query.answer(ErrorMessage.NO_EXPORT_DATA, show_alert=True)
+#         return
+#     
+#     try:
+#         csv_file = generate_csv(expenses, include_user=True)
+#         filename = generate_csv_filename(family_name=view_data.family_name, is_personal=False)
+#         
+#         await context.bot.send_document(
+#             chat_id=query.message.chat_id,
+#             document=csv_file,
+#             filename=filename,
+#             caption=f"📊 Экспорт семейных расходов\n{Emoji.FAMILY} Семья: {view_data.family_name}\n{Emoji.DESCRIPTION} Записей: {len(expenses)}"
+#         )
+#         
+#         logger.info(f"Exported {len(expenses)} family expenses to CSV for family {view_data.family_id}")
+#     except Exception as e:
+#         logger.error(f"Error exporting family expenses: {e}")
+#         await query.answer(ErrorMessage.EXPORT_ERROR, show_alert=True)
+
+
+# Export handlers moved to statistics section - no longer used from expenses view  
+# async def family_export_gdocs_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle HTML report export for family expenses."""
+    from bot.utils.html_report_export import export_monthly_report, generate_report_filename
+    from datetime import datetime
+    
     query = update.callback_query
-    await query.answer("📊 Генерирую CSV файл...")
+    await query.answer()
+    await query.edit_message_text(f"{Emoji.LOADING} Создаю HTML отчет...")
     
     view_data = ViewData.from_context(context, prefix="family_view")
     
     if not view_data.family_id:
-        await query.answer(ErrorMessage.MISSING_DATA, show_alert=True)
+        await query.edit_message_text(ErrorMessage.MISSING_DATA)
         return
     
     start_date, end_date = crud.calculate_date_range(view_data.period)
     
-    async def get_all_expenses(session):
-        return await crud.get_family_expenses_with_users(
-            session,
-            family_id=view_data.family_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=None,
-            offset=0
+    async def get_statistics(session):
+        return await crud.get_period_statistics(
+            session, view_data.family_id, start_date, end_date, is_family=True
         )
     
-    expenses = await handle_db_operation(get_all_expenses, "Error exporting family expenses")
+    stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
     
-    if not expenses:
-        await query.answer(ErrorMessage.NO_EXPORT_DATA, show_alert=True)
+    if not stats or stats.get('total', 0) == 0:
+        await query.edit_message_text(ErrorMessage.NO_EXPORT_DATA)
         return
     
+    # Format period name
+    now = datetime.now()
+    
+    if view_data.period == 'today':
+        period_name = f"Сегодня - {now.strftime('%d.%m.%Y')}"
+    elif view_data.period == 'week':
+        period_name = f"Эта неделя"
+    elif view_data.period == 'month':
+        month_names = {
+            1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+            5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+            9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+        }
+        period_name = f"{month_names[now.month]} {now.year}"
+    elif view_data.period and view_data.period != 'all' and '-' in view_data.period:
+        # Format: "YYYY-MM"
+        month_names = {
+            1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+            5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+            9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+        }
+        year, month = map(int, view_data.period.split('-'))
+        period_name = f"{month_names[month]} {year}"
+    else:
+        period_name = f"Все время"
+    
     try:
-        csv_file = generate_csv(expenses, include_user=True)
-        filename = generate_csv_filename(family_name=view_data.family_name, is_personal=False)
+        html_file = await export_monthly_report(view_data.family_name, period_name, stats)
+        filename = generate_report_filename(view_data.family_name, period_name, is_personal=False)
         
         await context.bot.send_document(
             chat_id=query.message.chat_id,
-            document=csv_file,
+            document=html_file,
             filename=filename,
-            caption=f"📊 Экспорт семейных расходов\n{Emoji.FAMILY} Семья: {view_data.family_name}\n{Emoji.DESCRIPTION} Записей: {len(expenses)}"
+            caption=(
+                f"{Emoji.CHECK} <b>Отчет успешно создан!</b>\n\n"
+                f"{Emoji.FAMILY} Семья: {view_data.family_name}\n"
+                f"{Emoji.CALENDAR} Период: {period_name}\n\n"
+                f"📊 Откройте файл в браузере для просмотра красиво оформленного отчета"
+            ),
+            parse_mode='HTML'
         )
         
-        logger.info(f"Exported {len(expenses)} family expenses to CSV for family {view_data.family_id}")
+        await query.edit_message_text(
+            f"{Emoji.CHECK} Отчет отправлен! Откройте HTML файл в браузере."
+        )
+        
+        logger.info(f"Exported HTML report for family {view_data.family_id}")
     except Exception as e:
-        logger.error(f"Error exporting family expenses: {e}")
-        await query.answer(ErrorMessage.EXPORT_ERROR, show_alert=True)
+        logger.error(f"Error creating HTML report: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"{Emoji.ERROR} <b>Ошибка при создании отчета</b>\n\n"
+            f"Ошибка: {str(e)}\n\n"
+            "Используйте CSV экспорт как альтернативу."
+        )
 
 
 async def cancel_family_expenses(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

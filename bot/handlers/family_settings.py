@@ -22,6 +22,7 @@ from bot.utils.keyboards import (
     get_confirmation_keyboard,
     get_family_selection_keyboard,
     get_family_settings_keyboard,
+    get_home_button,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,7 @@ async def handle_db_operation(operation, error_message: str):
         try:
             result = await operation(session)
             # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
                 # Force load all objects and their attributes
                 result_list = list(result)
                 for obj in result_list:
@@ -288,13 +289,15 @@ async def family_settings_command(update: Update, context: ContextTypes.DEFAULT_
     result = await handle_db_operation(get_user_and_families, "Error in family_settings_command")
     
     if result is None:
-        await message.reply_text(ErrorMessage.USER_NOT_FOUND)
+        keyboard = get_home_button()
+        await message.reply_text(ErrorMessage.USER_NOT_FOUND, reply_markup=keyboard)
         return
     
     user, families = result
     
     if not user:
-        await message.reply_text(ErrorMessage.USER_NOT_FOUND)
+        keyboard = get_home_button()
+        await message.reply_text(ErrorMessage.USER_NOT_FOUND, reply_markup=keyboard)
         return
     
     if not families:
@@ -344,7 +347,8 @@ async def show_family_settings(
     family = await crud.get_family_by_id(session, family_id)
     
     if not family:
-        await message.reply_text(ErrorMessage.FAMILY_NOT_FOUND)
+        keyboard = get_home_button()
+        await message.reply_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
         return
     
     members = await crud.get_family_members(session, family_id)
@@ -414,13 +418,15 @@ async def family_rename_process(update: Update, context: ContextTypes.DEFAULT_TY
     new_name, error_message = validate_family_name(update.message.text)
     
     if error_message:
-        await update.message.reply_text(error_message)
+        keyboard = get_home_button()
+        await update.message.reply_text(error_message, reply_markup=keyboard)
         return ConversationState.RENAME_FAMILY
     
     settings_data = FamilySettingsData.from_context(context)
     
     if not settings_data.selected_family_id:
-        await update.message.reply_text(ErrorMessage.FAMILY_NOT_SELECTED)
+        keyboard = get_home_button()
+        await update.message.reply_text(ErrorMessage.FAMILY_NOT_SELECTED, reply_markup=keyboard)
         return ConversationHandler.END
     
     telegram_id = update.effective_user.id
@@ -441,19 +447,21 @@ async def family_rename_process(update: Update, context: ContextTypes.DEFAULT_TY
     
     result = await handle_db_operation(rename_family, "Error renaming family")
     
+    keyboard = get_home_button()
     if result is None:
-        await update.message.reply_text(ErrorMessage.USER_NOT_FOUND)
+        await update.message.reply_text(ErrorMessage.USER_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     user, error = result
     
     if error:
-        await update.message.reply_text(error)
+        await update.message.reply_text(error, reply_markup=keyboard)
         return ConversationHandler.END
     
     await update.message.reply_text(
         MessageBuilder.build_rename_success_message(new_name),
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=keyboard
     )
     
     async def get_session():
@@ -578,13 +586,14 @@ async def confirm_leave_family_callback(update: Update, context: ContextTypes.DE
     
     success = await handle_db_operation(leave_family, "Error leaving family")
     
+    keyboard = get_home_button()
     if success:
         await update.callback_query.answer(f"{Emoji.SUCCESS} Вы покинули семью")
         text = (
             f"{Emoji.SUCCESS} Вы успешно покинули семью.\n\n"
             "Используйте /start для возврата в главное меню."
         )
-        await update.callback_query.message.edit_text(text)
+        await update.callback_query.message.edit_text(text, reply_markup=keyboard)
     else:
         await update.callback_query.answer(ErrorMessage.LEAVE_ERROR)
 
@@ -638,13 +647,14 @@ async def confirm_delete_family_callback(update: Update, context: ContextTypes.D
     
     success, error = result
     
+    keyboard = get_home_button()
     if success:
         await update.callback_query.answer(f"{Emoji.SUCCESS} Семья удалена")
         text = (
             f"{Emoji.SUCCESS} Семья успешно удалена.\n\n"
             "Используйте /start для возврата в главное меню."
         )
-        await update.callback_query.message.edit_text(text)
+        await update.callback_query.message.edit_text(text, reply_markup=keyboard)
     else:
         await update.callback_query.answer(error)
 
@@ -652,7 +662,8 @@ async def confirm_delete_family_callback(update: Update, context: ContextTypes.D
 async def cancel_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel rename operation."""
     if update.message:
-        await update.message.reply_text(f"{Emoji.ERROR} Операция отменена")
+        keyboard = get_home_button()
+        await update.message.reply_text(f"{Emoji.ERROR} Операция отменена", reply_markup=keyboard)
     return ConversationHandler.END
 
 

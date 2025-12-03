@@ -17,7 +17,7 @@ from telegram.ext import (
 from bot.database import crud, get_db
 from bot.utils.formatters import format_amount, format_date
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
-from bot.utils.keyboards import add_navigation_buttons
+from bot.utils.keyboards import add_navigation_buttons, get_back_button, get_home_button
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ class CallbackPattern:
     STATS_MONTH_PREFIX = "stats_month_"
     STATS_YEAR_PREFIX = "stats_year_"
     STATS_DETAILED_REPORT = "stats_detailed_report"
+    STATS_EXPORT_HTML = "stats_export_html"
     STATS_BACK_TO_PERIOD_TYPE = "stats_back_to_period_type"
     STATS_BACK_TO_PERIOD = "stats_back_to_period"
     STATS_BACK = "stats_back"
@@ -78,6 +79,7 @@ class Emoji:
     ERROR = "❌"
     BACK = "◀️"
     WAVE = "👋"
+    EXPORT = "📥"
     DASH = "—"
     DOCUMENT = "📄"
 
@@ -361,7 +363,7 @@ def format_detailed_statistics_message(stats: dict, period_name: str, stats_type
                             amount_str = format_amount(expense['amount'])
                             
                             # Handle None description
-                            desc = expense['description'] or "Без описания"
+                            desc = expense['description'] or "—"
                             description = desc[:40] + "..." if len(desc) > 40 else desc
                             
                             lines.append(f"      • {date_str}: {amount_str}")
@@ -468,7 +470,10 @@ class KeyboardBuilder:
     def build_stats_view_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for statistics view."""
         keyboard = [
-            [InlineKeyboardButton(f"{Emoji.DOCUMENT} Детализированный отчет", callback_data=CallbackPattern.STATS_DETAILED_REPORT)]
+            [
+                InlineKeyboardButton(f"{Emoji.EXPORT} HTML отчет", callback_data=CallbackPattern.STATS_EXPORT_HTML),
+                InlineKeyboardButton(f"{Emoji.DOCUMENT} Детализация", callback_data=CallbackPattern.STATS_DETAILED_REPORT)
+            ]
         ]
         keyboard = add_navigation_buttons(keyboard, context, current_state="stats_view")
         return InlineKeyboardMarkup(keyboard)
@@ -503,8 +508,9 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     user_id = await get_user_id(update, context)
     if not user_id:
         message_text = ErrorMessage.NOT_REGISTERED
+        keyboard = get_home_button()
         if query:
-            await query.message.edit_text(message_text)
+            await query.message.edit_text(message_text, reply_markup=keyboard)
         else:
             await update.message.reply_text(message_text)
         return ConversationHandler.END
@@ -546,7 +552,8 @@ async def stats_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     families = await handle_db_operation(get_families, "Error getting families for stats")
     
     if not families:
-        await query.edit_message_text(ErrorMessage.NO_FAMILIES)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.NO_FAMILIES, reply_markup=keyboard)
         return ConversationHandler.END
     
     # If only one family, skip family selection
@@ -585,7 +592,8 @@ async def stats_select_family(update: Update, context: ContextTypes.DEFAULT_TYPE
     family = await handle_db_operation(get_family, f"Error getting family {family_id}")
     
     if not family:
-        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     stats_data = StatsData.from_context(context)
@@ -643,13 +651,15 @@ async def stats_select_period_type(update: Update, context: ContextTypes.DEFAULT
     periods_data = await handle_db_operation(get_periods, "Error getting available periods")
     
     if not periods_data:
-        await query.edit_message_text(ErrorMessage.STATS_ERROR)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.STATS_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     if period_type == PeriodType.MONTH:
         months = periods_data['months']
         if not months:
-            await query.edit_message_text(ErrorMessage.NO_PERIODS)
+            keyboard = get_home_button()
+            await query.edit_message_text(ErrorMessage.NO_PERIODS, reply_markup=keyboard)
             return ConversationHandler.END
         
         message_text = f"{Emoji.CALENDAR} Выберите месяц для просмотра статистики:"
@@ -658,7 +668,8 @@ async def stats_select_period_type(update: Update, context: ContextTypes.DEFAULT
     else:
         years = periods_data['years']
         if not years:
-            await query.edit_message_text(ErrorMessage.NO_PERIODS)
+            keyboard = get_home_button()
+            await query.edit_message_text(ErrorMessage.NO_PERIODS, reply_markup=keyboard)
             return ConversationHandler.END
         
         message_text = f"{Emoji.CALENDAR} Выберите год для просмотра статистики:"
@@ -755,7 +766,8 @@ async def show_basic_statistics(query, context: ContextTypes.DEFAULT_TYPE) -> in
     stats = await handle_db_operation(get_statistics, "Error getting statistics")
     
     if stats is None:
-        await query.edit_message_text(ErrorMessage.STATS_ERROR)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.STATS_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     period_name = format_period_name(stats_data.year, stats_data.month)
@@ -800,7 +812,8 @@ async def stats_show_detailed_report(update: Update, context: ContextTypes.DEFAU
     stats = await handle_db_operation(get_statistics, "Error getting detailed statistics")
     
     if stats is None:
-        await query.edit_message_text(ErrorMessage.STATS_ERROR)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.STATS_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     period_name = format_period_name(stats_data.year, stats_data.month)
@@ -862,6 +875,85 @@ async def stats_back_to_period(update: Update, context: ContextTypes.DEFAULT_TYP
     return await show_basic_statistics(query, context)
 
 
+async def stats_export_html_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle HTML report export from statistics view.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+        
+    Returns:
+        Next conversation state
+    """
+    from bot.utils.html_report_export import export_monthly_report, generate_report_filename
+    
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(f"{Emoji.LOADING} Создаю HTML отчет...")
+    
+    stats_data = StatsData.from_context(context)
+    user_id = context.user_data.get('user_id')
+    
+    if not user_id:
+        await query.edit_message_text(ErrorMessage.MISSING_DATA)
+        return ConversationState.VIEW_STATS
+    
+    is_family = (stats_data.stats_type == StatsType.FAMILY)
+    entity_id = stats_data.family_id if is_family else user_id
+    
+    async def get_statistics(session):
+        return await crud.get_period_statistics(
+            session, entity_id,
+            stats_data.start_date, stats_data.end_date,
+            is_family=is_family
+        )
+    
+    stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
+    
+    if not stats or stats.get('total', 0) == 0:
+        await query.edit_message_text(
+            f"{Emoji.ERROR} Нет данных для экспорта за выбранный период.\n\n"
+            "Возвращаюсь к статистике..."
+        )
+        return await show_basic_statistics(query, context)
+    
+    # Format period name
+    period_name = format_period_name(stats_data.year, stats_data.month)
+    family_name = stats_data.family_name if is_family else "Личные расходы"
+    
+    try:
+        html_file = await export_monthly_report(family_name, period_name, stats)
+        filename = generate_report_filename(family_name, period_name, is_personal=not is_family)
+        
+        # Keyboard with navigation buttons
+        keyboard = get_back_button("stats_start")
+        
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=html_file,
+            filename=filename,
+            caption=(
+                f"✅ <b>HTML отчет создан!</b>\n\n"
+                f"{Emoji.FAMILY if is_family else Emoji.USER} {family_name}\n"
+                f"{Emoji.CALENDAR} Период: {period_name}\n\n"
+                f"{Emoji.DOCUMENT} Откройте файл в браузере для просмотра"
+            ),
+            parse_mode='HTML',
+            reply_markup=keyboard
+        )
+        
+        # Return to statistics view
+        return await show_basic_statistics(query, context)
+        
+    except Exception as e:
+        logger.error(f"Error creating HTML report: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"{Emoji.ERROR} <b>Ошибка при создании отчета</b>\n\n"
+            f"Попробуйте позже. Возвращаюсь к статистике..."
+        )
+        return await show_basic_statistics(query, context)
+
+
 async def stats_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the statistics viewing process.
     
@@ -911,6 +1003,7 @@ stats_handler = ConversationHandler(
             CallbackQueryHandler(stats_cancel, pattern=f"^{CallbackPattern.STATS_CANCEL}$")
         ],
         ConversationState.VIEW_STATS: [
+            CallbackQueryHandler(stats_export_html_handler, pattern=f"^{CallbackPattern.STATS_EXPORT_HTML}$"),
             CallbackQueryHandler(stats_show_detailed_report, pattern=f"^{CallbackPattern.STATS_DETAILED_REPORT}$"),
             CallbackQueryHandler(stats_back_to_period, pattern=f"^{CallbackPattern.STATS_BACK_TO_PERIOD}$"),
             CallbackQueryHandler(stats_cancel, pattern=f"^{CallbackPattern.STATS_CANCEL}$")
