@@ -1313,7 +1313,7 @@ async def get_user_expenses_detailed_monthly_report(
             for expense in expenses:
                 expenses_list.append({
                     'amount': expense.amount,
-                    'description': expense.description or "Без описания",
+                    'description': expense.description or "—",
                     'date': expense.date
                 })
             
@@ -1463,7 +1463,7 @@ async def get_family_expenses_detailed_report(
             for expense in expenses:
                 expenses_list.append({
                     'amount': expense.amount,
-                    'description': expense.description or "Без описания",
+                    'description': expense.description or "—",
                     'date': expense.date
                 })
             
@@ -1993,10 +1993,44 @@ async def get_period_statistics(
                 'percentage': 0.0  # Will be calculated later
             })
         
-        # Calculate percentages
+        # Calculate percentages and get expenses for each category
         for cat_data in by_category:
             if total_amount > 0:
                 cat_data['percentage'] = float((cat_data['amount'] / total_amount) * 100)
+            
+            # Get individual expenses for this category
+            expense_query = (
+                select(Expense)
+                .where(Expense.category_id == cat_data['category_id'])
+            )
+            
+            # Apply entity filter
+            if is_family:
+                expense_query = expense_query.where(Expense.family_id == entity_id)
+            else:
+                expense_query = expense_query.where(Expense.user_id == entity_id)
+            
+            # Apply date filters
+            if start_date:
+                expense_query = expense_query.where(Expense.date >= start_date)
+            if end_date:
+                expense_query = expense_query.where(Expense.date <= end_date)
+            
+            # Order by date descending
+            expense_query = expense_query.order_by(Expense.date.desc())
+            
+            expense_result = await session.execute(expense_query)
+            expenses = expense_result.scalars().all()
+            
+            # Add expenses to category data
+            cat_data['expenses'] = [
+                {
+                    'date': expense.date,
+                    'amount': expense.amount,
+                    'description': expense.description or "—"
+                }
+                for expense in expenses
+            ]
         
         # Calculate average per day
         avg_per_day = Decimal('0')

@@ -20,6 +20,7 @@ from telegram.ext import (
 from bot.database import crud, get_db
 from bot.utils.formatters import format_amount
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.keyboards import get_home_button
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ async def handle_db_operation(operation, error_message: str):
         try:
             result = await operation(session)
             # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
                 # Force load all objects and their attributes
                 result_list = list(result)
                 for obj in result_list:
@@ -533,7 +534,8 @@ async def quick_expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     families = await handle_db_operation(get_families, "Error in quick_expense_start")
     
     if families is None:
-        await send_or_edit_message(update, ErrorMessage.GENERAL)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.GENERAL, reply_markup=keyboard)
         return ConversationHandler.END
     
     if not families:
@@ -613,7 +615,8 @@ async def show_quick_expense_menu(update: Update, context: ContextTypes.DEFAULT_
     templates = await handle_db_operation(get_templates, "Error showing quick expense menu")
     
     if templates is None:
-        await send_or_edit_message(update, ErrorMessage.GENERAL)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.GENERAL, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_template_menu_message(template_data.family_name, templates)

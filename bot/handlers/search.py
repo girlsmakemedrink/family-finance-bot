@@ -20,6 +20,7 @@ from telegram.ext import (
 from bot.database import crud, get_db
 from bot.utils.formatters import format_amount, format_expense
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.keyboards import get_home_button
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ async def handle_db_operation(operation, error_message: str):
         try:
             result = await operation(session)
             # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
                 # Force load all objects and their attributes
                 result_list = list(result)
                 for obj in result_list:
@@ -358,7 +359,8 @@ async def search_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     families = await handle_db_operation(get_families, "Error in search_start")
     
     if families is None:
-        await send_or_edit_message(update, ErrorMessage.GENERAL)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.GENERAL, reply_markup=keyboard)
         return ConversationHandler.END
     
     if not families:
@@ -395,7 +397,8 @@ async def search_family_selected(update: Update, context: ContextTypes.DEFAULT_T
     family = await handle_db_operation(get_family, f"Error getting family {family_id}")
     
     if not family:
-        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     search_data = SearchData(family_id=family_id, family_name=family.name)
@@ -434,7 +437,8 @@ async def search_type_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     elif search_type == SearchType.CATEGORY:
         return await show_category_selection_for_search(update, context)
     else:
-        await query.edit_message_text(ErrorMessage.UNKNOWN_SEARCH_TYPE)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.UNKNOWN_SEARCH_TYPE, reply_markup=keyboard)
         return ConversationHandler.END
     
     keyboard = KeyboardBuilder.build_cancel_keyboard()
@@ -454,7 +458,8 @@ async def show_category_selection_for_search(update: Update, context: ContextTyp
     categories = await handle_db_operation(get_categories, "Error showing categories for search")
     
     if not categories:
-        await query.edit_message_text(ErrorMessage.NO_CATEGORIES)
+        keyboard = get_home_button()
+        await query.edit_message_text(ErrorMessage.NO_CATEGORIES, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_category_prompt(search_data.family_name)
@@ -535,21 +540,22 @@ async def search_query_received(update: Update, context: ContextTypes.DEFAULT_TY
     
     result = await handle_db_operation(perform_search, "Error performing search")
     
+    keyboard = get_home_button()
     if result is None:
         error_msg = ErrorMessage.SEARCH_ERROR
         if is_callback:
-            await update.callback_query.edit_message_text(error_msg, parse_mode="HTML")
+            await update.callback_query.edit_message_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
         else:
-            await update.message.reply_text(error_msg, parse_mode="HTML")
+            await update.message.reply_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
         return ConversationHandler.END
     
     expenses, error_msg = result
     
     if error_msg:
         if is_callback:
-            await update.callback_query.edit_message_text(error_msg, parse_mode="HTML")
+            await update.callback_query.edit_message_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
         else:
-            await update.message.reply_text(error_msg, parse_mode="HTML")
+            await update.message.reply_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_results_message(search_data.family_name, expenses)

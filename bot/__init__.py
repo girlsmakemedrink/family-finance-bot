@@ -58,10 +58,16 @@ class FamilyFinanceBot:
         from bot.handlers.errors import error_handler
         from bot.handlers.expenses import (
             add_expense_handler,
-            family_export_handler,
+            view_expenses_handler,
+            family_expenses_handler,
+            # family_export_handler,  # Export moved to statistics section
+            # family_export_csv_handler,  # CSV export removed
+            # family_export_gdocs_handler,  # Export moved to statistics section
             family_grouping_handler,
             family_pagination_handler,
-            my_export_handler,
+            # my_export_handler,  # Export moved to statistics section
+            # my_export_csv_handler,  # CSV export removed
+            # my_export_gdocs_handler,  # Export moved to statistics section
             pagination_handler,
         )
         from bot.handlers.family import (
@@ -133,6 +139,8 @@ class FamilyFinanceBot:
         self.application.add_handler(create_family_handler)
         self.application.add_handler(join_family_handler)
         self.application.add_handler(add_expense_handler)
+        self.application.add_handler(view_expenses_handler)
+        self.application.add_handler(family_expenses_handler)
         self.application.add_handler(stats_handler)
         self.application.add_handler(search_handler)
         self.application.add_handler(quick_expense_handler)
@@ -170,17 +178,47 @@ class FamilyFinanceBot:
         )
         self.application.add_handler(family_grouping_callback_handler)
         
-        my_export_callback_handler = CallbackQueryHandler(
-            my_export_handler,
-            pattern="^my_export$"
-        )
-        self.application.add_handler(my_export_callback_handler)
+        # Export handlers moved to statistics section
+        # my_export_callback_handler = CallbackQueryHandler(
+        #     my_export_handler,
+        #     pattern="^my_export$"
+        # )
+        # self.application.add_handler(my_export_callback_handler)
         
-        family_export_callback_handler = CallbackQueryHandler(
-            family_export_handler,
-            pattern="^family_export$"
-        )
-        self.application.add_handler(family_export_callback_handler)
+        # CSV export removed - only HTML export is supported
+        # my_export_csv_callback_handler = CallbackQueryHandler(
+        #     my_export_csv_handler,
+        #     pattern="^my_export_csv$"
+        # )
+        # self.application.add_handler(my_export_csv_callback_handler)
+        
+        # Export handlers moved to statistics section
+        # my_export_gdocs_callback_handler = CallbackQueryHandler(
+        #     my_export_gdocs_handler,
+        #     pattern="^my_export_gdocs$"
+        # )
+        # self.application.add_handler(my_export_gdocs_callback_handler)
+        
+        # Export handlers moved to statistics section
+        # family_export_callback_handler = CallbackQueryHandler(
+        #     family_export_handler,
+        #     pattern="^family_export$"
+        # )
+        # self.application.add_handler(family_export_callback_handler)
+        
+        # CSV export removed - only HTML export is supported
+        # family_export_csv_callback_handler = CallbackQueryHandler(
+        #     family_export_csv_handler,
+        #     pattern="^family_export_csv$"
+        # )
+        # self.application.add_handler(family_export_csv_callback_handler)
+        
+        # Export handlers moved to statistics section
+        # family_export_gdocs_callback_handler = CallbackQueryHandler(
+        #     family_export_gdocs_handler,
+        #     pattern="^family_export_gdocs$"
+        # )
+        # self.application.add_handler(family_export_gdocs_callback_handler)
         
         # Detailed report handlers are no longer needed as they are integrated into statistics
         

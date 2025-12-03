@@ -18,7 +18,7 @@ from telegram.ext import (
 
 from bot.database import crud, get_db
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, safe_edit_message
-from bot.utils.keyboards import add_navigation_buttons
+from bot.utils.keyboards import add_navigation_buttons, get_home_button
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +279,7 @@ async def handle_db_operation(operation, error_message: str):
         try:
             result = await operation(session)
             # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
                 # Force load all objects and their attributes
                 result_list = list(result)
                 # Access all lazy-loaded attributes to load them into memory
@@ -528,14 +528,16 @@ class KeyboardBuilder:
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
-    def build_confirmation_keyboard() -> InlineKeyboardMarkup:
+    def build_confirmation_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for confirmation."""
-        return InlineKeyboardMarkup([
+        keyboard = [
             [
                 InlineKeyboardButton(f"{Emoji.SUCCESS} Создать", callback_data=CallbackPattern.CAT_ADD_CONFIRM),
                 InlineKeyboardButton(f"{Emoji.ERROR} Отмена", callback_data=CallbackPattern.CAT_ADD_CANCEL)
             ]
-        ])
+        ]
+        keyboard = add_navigation_buttons(keyboard, context, show_back=False)
+        return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
     def build_category_list_keyboard(categories: List, pattern_prefix: str, context: ContextTypes.DEFAULT_TYPE, state: str) -> InlineKeyboardMarkup:
@@ -600,7 +602,8 @@ async def categories_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     families = await handle_db_operation(get_families, "Error in categories_command")
     
     if not families:
-        await send_or_edit_message(update, ErrorMessage.NO_FAMILIES)
+        keyboard = get_home_button()
+        await send_or_edit_message(update, ErrorMessage.NO_FAMILIES, reply_markup=keyboard)
         return
     
     # If user has only one family, show categories directly
@@ -672,7 +675,8 @@ async def add_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     name, error_message = validate_category_name(update.message.text)
     
     if error_message:
-        await update.message.reply_text(error_message)
+        keyboard = get_home_button()
+        await update.message.reply_text(error_message, reply_markup=keyboard)
         return ConversationState.ADD_ENTER_NAME
     
     cat_data = CategoryData.from_context(context, "add_cat")
@@ -684,7 +688,8 @@ async def add_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     exists = await handle_db_operation(check_name_exists, "Error checking category name")
     
     if exists:
-        await update.message.reply_text(ErrorMessage.NAME_EXISTS.format(name=name))
+        keyboard = get_home_button()
+        await update.message.reply_text(ErrorMessage.NAME_EXISTS.format(name=name), reply_markup=keyboard)
         return ConversationState.ADD_ENTER_NAME
     
     cat_data.name = name
@@ -714,7 +719,7 @@ async def add_category_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE)
         cat_data.save_to_context(context, "add_cat")
         
         message = MessageBuilder.build_add_category_confirmation(cat_data.name, emoji)
-        keyboard = KeyboardBuilder.build_confirmation_keyboard()
+        keyboard = KeyboardBuilder.build_confirmation_keyboard(context)
         await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
         
         return ConversationState.ADD_CONFIRM
@@ -723,14 +728,15 @@ async def add_category_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE)
         emoji = update.message.text.strip()
         
         if not validate_emoji(emoji):
-            await update.message.reply_text(ErrorMessage.INVALID_EMOJI)
+            keyboard = get_home_button()
+            await update.message.reply_text(ErrorMessage.INVALID_EMOJI, reply_markup=keyboard)
             return ConversationState.ADD_SELECT_EMOJI
         
         cat_data.icon = emoji
         cat_data.save_to_context(context, "add_cat")
         
         message = MessageBuilder.build_add_category_confirmation(cat_data.name, emoji)
-        keyboard = KeyboardBuilder.build_confirmation_keyboard()
+        keyboard = KeyboardBuilder.build_confirmation_keyboard(context)
         await update.message.reply_text(message, reply_markup=keyboard, parse_mode="HTML")
         
         return ConversationState.ADD_CONFIRM
@@ -755,11 +761,12 @@ async def add_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
     
     category = await handle_db_operation(create_category, "Error creating category")
     
+    keyboard = get_home_button()
     if category is None:
-        await safe_edit_message(query, ErrorMessage.CREATE_ERROR)
+        await safe_edit_message(query, ErrorMessage.CREATE_ERROR, reply_markup=keyboard)
     else:
         message = MessageBuilder.build_category_created_message(cat_data.name, cat_data.icon)
-        await safe_edit_message(query, message, parse_mode="HTML")
+        await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Created category {category.id} for family {cat_data.family_id}")
     
     cat_data.clear_from_context(context, "add_cat")
@@ -771,7 +778,8 @@ async def add_category_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     
-    await safe_edit_message(query, f"{Emoji.ERROR} Добавление категории отменено.")
+    keyboard = get_home_button()
+    await safe_edit_message(query, f"{Emoji.ERROR} Добавление категории отменено.", reply_markup=keyboard)
     
     cat_data = CategoryData()
     cat_data.clear_from_context(context, "add_cat")
@@ -798,7 +806,8 @@ async def edit_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     categories = await handle_db_operation(get_custom_categories, "Error getting custom categories")
     
     if not categories:
-        await safe_edit_message(query, ErrorMessage.NO_CUSTOM_CATEGORIES_EDIT)
+        keyboard = get_home_button()
+        await safe_edit_message(query, ErrorMessage.NO_CUSTOM_CATEGORIES_EDIT, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_edit_category_list_prompt()
@@ -829,7 +838,8 @@ async def edit_category_select(update: Update, context: ContextTypes.DEFAULT_TYP
     category = await handle_db_operation(get_category, f"Error getting category {category_id}")
     
     if not category:
-        await safe_edit_message(query, ErrorMessage.CATEGORY_NOT_FOUND)
+        keyboard = get_home_button()
+        await safe_edit_message(query, ErrorMessage.CATEGORY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_edit_action_selection(category.name, category.icon)
@@ -847,7 +857,8 @@ async def edit_category_action(update: Update, context: ContextTypes.DEFAULT_TYP
     action = query.data
     
     if action == CallbackPattern.EDIT_NAME:
-        await safe_edit_message(query, f"{Emoji.NOTE} Введите новое название категории:")
+        keyboard = get_home_button()
+        await safe_edit_message(query, f"{Emoji.NOTE} Введите новое название категории:", reply_markup=keyboard)
         return ConversationState.EDIT_ENTER_NAME
     
     elif action == CallbackPattern.EDIT_ICON:
@@ -866,7 +877,8 @@ async def edit_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     name, error_message = validate_category_name(update.message.text)
     
     if error_message:
-        await update.message.reply_text(error_message)
+        keyboard = get_home_button()
+        await update.message.reply_text(error_message, reply_markup=keyboard)
         return ConversationState.EDIT_ENTER_NAME
     
     cat_data = CategoryData.from_context(context, "edit_cat")
@@ -885,16 +897,17 @@ async def edit_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     result = await handle_db_operation(check_and_update, "Error updating category name")
     
+    keyboard = get_home_button()
     if result is None:
-        await update.message.reply_text(ErrorMessage.UPDATE_ERROR)
+        await update.message.reply_text(ErrorMessage.UPDATE_ERROR, reply_markup=keyboard)
     else:
         category, error = result
         if error == "exists":
-            await update.message.reply_text(ErrorMessage.NAME_EXISTS.format(name=name))
+            await update.message.reply_text(ErrorMessage.NAME_EXISTS.format(name=name), reply_markup=keyboard)
             return ConversationState.EDIT_ENTER_NAME
         
         message = MessageBuilder.build_category_updated_message(category.name, category.icon, "name")
-        await update.message.reply_text(message, parse_mode="HTML")
+        await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Updated category {cat_data.category_id} name to '{name}'")
     
     cat_data.clear_from_context(context, "edit_cat")
@@ -914,7 +927,8 @@ async def edit_category_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE
         emoji = update.message.text.strip()
         
         if not validate_emoji(emoji):
-            await update.message.reply_text(ErrorMessage.INVALID_EMOJI)
+            keyboard = get_home_button()
+            await update.message.reply_text(ErrorMessage.INVALID_EMOJI, reply_markup=keyboard)
             return ConversationState.EDIT_SELECT_EMOJI
     
     async def update_category_icon(session):
@@ -924,18 +938,19 @@ async def edit_category_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     category = await handle_db_operation(update_category_icon, "Error updating category icon")
     
+    keyboard = get_home_button()
     if category is None:
         error_msg = ErrorMessage.UPDATE_ERROR
         if update.callback_query:
-            await update.callback_query.edit_message_text(error_msg)
+            await update.callback_query.edit_message_text(error_msg, reply_markup=keyboard)
         else:
-            await update.message.reply_text(error_msg)
+            await update.message.reply_text(error_msg, reply_markup=keyboard)
     else:
         message = MessageBuilder.build_category_updated_message(category.name, category.icon, "icon")
         if update.callback_query:
-            await update.callback_query.edit_message_text(message, parse_mode="HTML")
+            await update.callback_query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
         else:
-            await update.message.reply_text(message, parse_mode="HTML")
+            await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Updated category {cat_data.category_id} icon to '{emoji}'")
     
     cat_data.clear_from_context(context, "edit_cat")
@@ -947,7 +962,8 @@ async def edit_category_cancel(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     
-    await safe_edit_message(query, f"{Emoji.ERROR} Редактирование категории отменено.")
+    keyboard = get_home_button()
+    await safe_edit_message(query, f"{Emoji.ERROR} Редактирование категории отменено.", reply_markup=keyboard)
     
     cat_data = CategoryData()
     cat_data.clear_from_context(context, "edit_cat")
@@ -974,7 +990,8 @@ async def delete_category_start(update: Update, context: ContextTypes.DEFAULT_TY
     categories = await handle_db_operation(get_all_categories, "Error getting categories")
     
     if not categories:
-        await safe_edit_message(query, ErrorMessage.NO_CATEGORIES_DELETE)
+        keyboard = get_home_button()
+        await safe_edit_message(query, ErrorMessage.NO_CATEGORIES_DELETE, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_delete_category_list_prompt()
@@ -1006,14 +1023,15 @@ async def delete_category_select(update: Update, context: ContextTypes.DEFAULT_T
     
     result = await handle_db_operation(get_category_and_expenses, "Error checking category")
     
+    keyboard = get_home_button()
     if result is None:
-        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR)
+        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     category, expense_count = result
     
     if not category:
-        await safe_edit_message(query, ErrorMessage.CATEGORY_NOT_FOUND)
+        await safe_edit_message(query, ErrorMessage.CATEGORY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     # Save expense count to context
@@ -1048,7 +1066,8 @@ async def delete_category_choose_move(update: Update, context: ContextTypes.DEFA
     other_categories = await handle_db_operation(get_other_categories, "Error getting categories")
     
     if not other_categories:
-        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR)
+        keyboard = get_home_button()
+        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     async def get_category(session):
@@ -1091,7 +1110,8 @@ async def delete_category_select_target(update: Update, context: ContextTypes.DE
     result = await handle_db_operation(get_categories_and_count, "Error getting categories")
     
     if result is None:
-        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR)
+        keyboard = get_home_button()
+        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     category, target_category, expense_count = result
@@ -1122,7 +1142,8 @@ async def delete_category_with_expenses(update: Update, context: ContextTypes.DE
     result = await handle_db_operation(get_category_and_count, "Error getting category")
     
     if result is None:
-        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR)
+        keyboard = get_home_button()
+        await safe_edit_message(query, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
     category, expense_count = result
@@ -1172,14 +1193,15 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
     
     result = await handle_db_operation(delete_and_process, "Error deleting category")
     
+    keyboard = get_home_button()
     if result is None:
-        await safe_edit_message(query, ErrorMessage.DELETE_ERROR)
+        await safe_edit_message(query, ErrorMessage.DELETE_ERROR, reply_markup=keyboard)
     else:
         category_name, category_icon, moved_count, deleted_count, target_name, target_icon = result
         message = MessageBuilder.build_category_deleted_message(
             category_name, category_icon, moved_count, deleted_count, target_name, target_icon
         )
-        await safe_edit_message(query, message, parse_mode="HTML")
+        await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Deleted category {cat_data.category_id}, moved {moved_count} expenses, deleted {deleted_count} expenses")
     
     cat_data.clear_from_context(context, "delete_cat")
@@ -1192,7 +1214,8 @@ async def delete_category_cancel(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     
-    await safe_edit_message(query, f"{Emoji.ERROR} Удаление категории отменено.")
+    keyboard = get_home_button()
+    await safe_edit_message(query, f"{Emoji.ERROR} Удаление категории отменено.", reply_markup=keyboard)
     
     cat_data = CategoryData()
     cat_data.clear_from_context(context, "delete_cat")

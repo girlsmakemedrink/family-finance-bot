@@ -12,6 +12,7 @@ from bot.database import crud, get_db
 from bot.utils.formatters import format_amount, format_date
 from bot.utils.charts import create_text_bar
 from bot.utils.helpers import get_user_id
+from bot.utils.keyboards import get_home_button
 from bot.handlers.expenses import CallbackPattern, ViewData
 
 logger = logging.getLogger(__name__)
@@ -21,13 +22,14 @@ logger = logging.getLogger(__name__)
 # HELPER FUNCTIONS
 # ============================================================================
 
-async def send_long_message(update: Update, text: str, parse_mode: str = "HTML") -> None:
+async def send_long_message(update: Update, text: str, parse_mode: str = "HTML", reply_markup: InlineKeyboardMarkup = None) -> None:
     """Send a message, splitting it into multiple messages if it exceeds Telegram's limit.
     
     Args:
         update: Update object
         text: Message text
         parse_mode: Parse mode (default: HTML)
+        reply_markup: Optional keyboard markup (will be attached to the last message part)
     """
     MAX_MESSAGE_LENGTH = 4096
     
@@ -40,7 +42,7 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "HTML")
         bot = update.get_bot()
     
     if len(text) <= MAX_MESSAGE_LENGTH:
-        await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_markup=reply_markup)
         return
     
     # Split message into parts
@@ -59,8 +61,10 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "HTML")
         parts.append(current_part)
     
     # Send each part
-    for part in parts:
-        await bot.send_message(chat_id=chat_id, text=part.strip(), parse_mode=parse_mode)
+    for i, part in enumerate(parts):
+        # Add keyboard only to the last part
+        markup = reply_markup if i == len(parts) - 1 else None
+        await bot.send_message(chat_id=chat_id, text=part.strip(), parse_mode=parse_mode, reply_markup=markup)
 
 
 def format_detailed_report(summary_data: dict, period_name: str) -> str:
@@ -113,7 +117,7 @@ def format_detailed_report(summary_data: dict, period_name: str) -> str:
                 expense_count = len(expenses)
                 for expense in expenses[:10]:  # Show max 10 expenses per category
                     exp_amount = expense['amount']
-                    exp_description = expense['description']
+                    exp_description = expense['description'] or "—"
                     exp_date = expense['date']
                     
                     # Format date
@@ -218,7 +222,8 @@ async def detailed_report_select_type(update: Update, context: ContextTypes.DEFA
     keyboard = [
         [InlineKeyboardButton("📅 Отчет за месяц", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}month")],
         [InlineKeyboardButton("📆 Отчет за год", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}year")],
-        [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)]
+        [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
     ]
     
     await query.edit_message_text(
@@ -366,8 +371,9 @@ async def generate_monthly_report(update: Update, context: ContextTypes.DEFAULT_
         except:
             pass
         
-        # Send detailed report
-        await send_long_message(update, message)
+        # Send detailed report with home button
+        keyboard = get_home_button()
+        await send_long_message(update, message, reply_markup=keyboard)
         
         logger.info(f"Sent detailed monthly report for {'family' if is_family else 'user'} {view_data.family_id}, period {period_name}")
         
@@ -435,8 +441,9 @@ async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_T
         except:
             pass
         
-        # Send detailed report
-        await send_long_message(update, message)
+        # Send detailed report with home button
+        keyboard = get_home_button()
+        await send_long_message(update, message, reply_markup=keyboard)
         
         logger.info(f"Sent detailed yearly report for {'family' if is_family else 'user'} {view_data.family_id}, period {period_name}")
         
@@ -511,7 +518,8 @@ async def family_detailed_report_select_type(update: Update, context: ContextTyp
     keyboard = [
         [InlineKeyboardButton("📅 Отчет за месяц", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}month")],
         [InlineKeyboardButton("📆 Отчет за год", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}year")],
-        [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)]
+        [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
     ]
     
     await query.edit_message_text(
