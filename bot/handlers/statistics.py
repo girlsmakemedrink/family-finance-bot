@@ -17,7 +17,7 @@ from telegram.ext import (
 from bot.database import crud, get_db
 from bot.utils.formatters import format_amount, format_date
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
-from bot.utils.keyboards import add_navigation_buttons, get_home_button
+from bot.utils.keyboards import add_navigation_buttons, get_back_button, get_home_button
 
 logger = logging.getLogger(__name__)
 
@@ -925,6 +925,9 @@ async def stats_export_html_handler(update: Update, context: ContextTypes.DEFAUL
         html_file = await export_monthly_report(family_name, period_name, stats)
         filename = generate_report_filename(family_name, period_name, is_personal=not is_family)
         
+        # Keyboard with navigation buttons
+        keyboard = get_back_button("stats_start")
+        
         await context.bot.send_document(
             chat_id=query.message.chat_id,
             document=html_file,
@@ -935,7 +938,8 @@ async def stats_export_html_handler(update: Update, context: ContextTypes.DEFAUL
                 f"{Emoji.CALENDAR} Период: {period_name}\n\n"
                 f"{Emoji.DOCUMENT} Откройте файл в браузере для просмотра"
             ),
-            parse_mode='HTML'
+            parse_mode='HTML',
+            reply_markup=keyboard
         )
         
         # Return to statistics view
