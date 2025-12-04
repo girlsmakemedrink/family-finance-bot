@@ -65,6 +65,9 @@ def _create_settings_text(user) -> str:
     else:
         text += "Не установлен"
     
+    text += f"\n🔔 <b>Уведомления о расходах:</b> "
+    text += "✅ Включены" if user.expense_notifications_enabled else "❌ Выключены"
+    
     text += "\n\nВыберите параметр для изменения:"
     
     return text
@@ -624,6 +627,49 @@ async def threshold_disable_callback(
 
 
 # ============================================================================
+# Expense Notifications Settings
+# ============================================================================
+
+async def settings_expense_notifications_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle expense notifications settings callback - toggle the setting.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram context object
+    """
+    query = update.callback_query
+    if not query or not update.effective_user:
+        return
+    
+    telegram_id = update.effective_user.id
+    
+    async for session in get_db():
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+        
+        if not user:
+            await query.answer("❌ Пользователь не найден")
+            return
+        
+        # Toggle the setting
+        new_value = not user.expense_notifications_enabled
+        user.expense_notifications_enabled = new_value
+        await session.commit()
+        
+        if new_value:
+            await query.answer("✅ Уведомления о расходах включены")
+            logger.info(f"User {telegram_id} enabled expense notifications")
+        else:
+            await query.answer("❌ Уведомления о расходах отключены")
+            logger.info(f"User {telegram_id} disabled expense notifications")
+        
+        # Refresh settings menu
+        await settings_command(update, context)
+
+
+# ============================================================================
 # Handler Registration
 # ============================================================================
 
@@ -682,4 +728,9 @@ settings_threshold_handler = CallbackQueryHandler(
 threshold_disable_handler = CallbackQueryHandler(
     threshold_disable_callback,
     pattern="^threshold_disable$"
+)
+
+settings_expense_notifications_handler = CallbackQueryHandler(
+    settings_expense_notifications_callback,
+    pattern="^settings_expense_notifications$"
 )
