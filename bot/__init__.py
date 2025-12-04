@@ -112,6 +112,7 @@ class FamilyFinanceBot:
             settings_callback_handler,
             settings_currency_handler,
             settings_date_format_handler,
+            settings_expense_notifications_handler,
             settings_handler,
             settings_monthly_summary_handler,
             settings_threshold_handler,
@@ -245,6 +246,7 @@ class FamilyFinanceBot:
         self.application.add_handler(monthly_summary_time_handler)
         self.application.add_handler(settings_threshold_handler)
         self.application.add_handler(threshold_disable_handler)
+        self.application.add_handler(settings_expense_notifications_handler)
         
         # Register threshold input handler (with lower priority)
         from telegram.ext import MessageHandler, filters

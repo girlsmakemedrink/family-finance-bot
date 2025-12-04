@@ -28,7 +28,7 @@ from bot.utils.formatters import (
     format_family_expense,
     format_family_summary,
 )
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_large_expense
+from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_large_expense, notify_expense_to_family
 from bot.utils.keyboards import add_navigation_buttons, get_add_another_keyboard, get_home_button
 
 logger = logging.getLogger(__name__)
@@ -1046,6 +1046,9 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             # Send notifications about large expenses
             await notify_large_expense(session, context.bot, expense, family_members)
             
+            # Send notifications to family members about the new expense
+            await notify_expense_to_family(session, context.bot, expense, family_members)
+            
             return expense, user, category
         
         result = await handle_db_operation(create_expense_and_notify, "Error creating expense")
@@ -1107,6 +1110,9 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         # Send notifications about large expenses
         await notify_large_expense(session, context.bot, expense, family_members)
+        
+        # Send notifications to family members about the new expense
+        await notify_expense_to_family(session, context.bot, expense, family_members)
         
         return expense, user, category
     
@@ -1187,6 +1193,9 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # Send notifications about large expenses
         await notify_large_expense(session, context.bot, expense, family_members)
+        
+        # Send notifications to family members about the new expense
+        await notify_expense_to_family(session, context.bot, expense, family_members)
         
         return expense, user, category
     
