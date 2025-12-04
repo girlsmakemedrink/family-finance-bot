@@ -328,7 +328,7 @@ async def notify_large_expense(
         session: Database session
         bot: Bot instance
         expense: Expense object
-        family_members: List of family members to notify
+        family_members: List of tuples (User, FamilyMember) from get_family_members
     """
     from bot.utils.formatters import format_amount
     import logging
@@ -359,25 +359,99 @@ async def notify_large_expense(
             message += f"📝 {expense.description}\n"
         
         # Send notification to all family members except the one who created expense
-        for member in family_members:
-            if member.user_id != expense.user_id:
+        # family_members is a list of tuples (User, FamilyMember)
+        for user, family_member in family_members:
+            if user.id != expense.user_id:
                 try:
                     await bot.send_message(
-                        chat_id=member.user.telegram_id,
+                        chat_id=user.telegram_id,
                         text=message,
                         parse_mode="HTML"
                     )
                     logger.info(
-                        f"Sent large expense notification to user {member.user_id} "
+                        f"Sent large expense notification to user {user.id} "
                         f"for expense {expense.id}"
                     )
                 except Exception as e:
                     logger.error(
                         f"Error sending large expense notification "
-                        f"to user {member.user_id}: {e}"
+                        f"to user {user.id}: {e}"
                     )
                     # Continue sending to other members even if one fails
         
     except Exception as e:
         logger.error(f"Error in notify_large_expense: {e}")
+
+
+async def notify_expense_to_family(
+    session,
+    bot,
+    expense,
+    family_members
+) -> None:
+    """Send notifications about new expenses to family members.
+    
+    Notifies all family members (except the one who added the expense)
+    that a new expense has been recorded. Respects user notification settings.
+    
+    Args:
+        session: Database session
+        bot: Bot instance
+        expense: Expense object with loaded user and category relationships
+        family_members: List of tuples (User, FamilyMember) from get_family_members
+    """
+    from bot.utils.formatters import format_amount
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Get user who created the expense
+        expense_user = expense.user
+        
+        # Prepare notification message
+        message = (
+            f"💸 <b>Новый расход в семье</b>\n\n"
+            f"👤 <b>Добавил:</b> {expense_user.name}\n"
+            f"{expense.category.icon} <b>Категория:</b> {expense.category.name}\n"
+            f"💰 <b>Сумма:</b> {format_amount(expense.amount)}\n"
+        )
+        
+        if expense.description:
+            message += f"📝 <b>Описание:</b> {expense.description}\n"
+        
+        # Send notification to all family members except the one who created expense
+        # family_members is a list of tuples (User, FamilyMember)
+        for user, family_member in family_members:
+            # Skip the user who created the expense
+            if user.id == expense.user_id:
+                continue
+            
+            # Check if user has notifications enabled
+            if not user.expense_notifications_enabled:
+                logger.debug(
+                    f"User {user.id} has expense notifications disabled, skipping"
+                )
+                continue
+            
+            try:
+                await bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=message,
+                    parse_mode="HTML"
+                )
+                logger.info(
+                    f"Sent expense notification to user {user.id} "
+                    f"for expense {expense.id}"
+                )
+            except Exception as e:
+                # Log error but continue sending to other members
+                # Common errors: user blocked bot, chat not found
+                logger.warning(
+                    f"Failed to send expense notification "
+                    f"to user {user.id}: {e}"
+                )
+        
+    except Exception as e:
+        logger.error(f"Error in notify_expense_to_family: {e}")
 
