@@ -429,7 +429,7 @@ class MessageBuilder:
             f"{Emoji.MONEY} <b>Добавление расхода</b>\n"
             f"{Emoji.FAMILY} Семья: <b>{expense_data.family_name}</b>\n"
             f"{Emoji.CATEGORY} Категория: {expense_data.category_icon} <b>{expense_data.category_name}</b>\n"
-            f"{Emoji.MONEY} Сумма: <b>{format_amount(expense_data.amount)} ₽</b>\n\n"
+            f"{Emoji.MONEY} Сумма: <b>{format_amount(expense_data.amount)}</b>\n\n"
             f"{Emoji.DESCRIPTION} Введите описание расхода (опционально):\n\n"
             "💡 <b>Примеры:</b>\n"
             "• Продукты в Пятёрочке\n"
@@ -446,7 +446,7 @@ class MessageBuilder:
             f"{Emoji.SUCCESS} <b>Расход успешно добавлен!</b>\n\n"
             f"{Emoji.FAMILY} <b>Семья:</b> {expense_data.family_name}\n"
             f"{Emoji.CATEGORY} <b>Категория:</b> {expense_data.category_icon} {expense_data.category_name}\n"
-            f"{Emoji.MONEY} <b>Сумма:</b> {format_amount(expense.amount)} ₽\n"
+            f"{Emoji.MONEY} <b>Сумма:</b> {format_amount(expense.amount)}\n"
         )
         
         if expense_data.description:
