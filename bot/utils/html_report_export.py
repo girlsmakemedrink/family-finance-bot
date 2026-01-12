@@ -429,7 +429,6 @@ def _create_chart_section(categories: List[Dict], max_amount: Decimal) -> str:
     for cat in categories:
         amount = cat['amount']
         percentage = cat['percentage']
-        icon = cat['category_icon']
         name = cat['category_name']
         
         # Calculate bar width
@@ -438,7 +437,7 @@ def _create_chart_section(categories: List[Dict], max_amount: Decimal) -> str:
         html += f"""
                 <div class="chart-bar">
                     <div class="chart-label">
-                        <span>{icon} {name}</span>
+                        <span>{name}</span>
                         <span>{amount:,.0f} ₽ ({percentage:.1f}%)</span>
                     </div>
                     <div class="chart-bar-container">
@@ -468,7 +467,7 @@ def _create_detailed_categories(categories: List[Dict]) -> str:
         html += f"""
             <div class="category-detail">
                 <div class="category-header">
-                    {cat['category_icon']} {cat['category_name']}
+                    {cat['category_name']}
                 </div>
                 <div class="category-amount">
                     Сумма: {cat['amount']:,.0f} ₽

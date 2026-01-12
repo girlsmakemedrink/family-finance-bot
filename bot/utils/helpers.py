@@ -351,7 +351,7 @@ async def notify_large_expense(
         message = (
             f"🚨 <b>Большая трата!</b>\n\n"
             f"👤 {expense_user.name}\n"
-            f"{expense.category.icon} <b>{expense.category.name}</b>\n"
+            f"<b>{expense.category.name}</b>\n"
             f"💰 Сумма: <b>{format_amount(expense.amount)}</b>\n"
         )
         
@@ -418,7 +418,7 @@ async def notify_expense_to_family(
         message = (
             f"💸 <b>Новый расход в семье</b>\n\n"
             f"👤 <b>Добавил:</b> {expense_user.name}\n"
-            f"{expense.category.icon} <b>Категория:</b> {expense.category.name}\n"
+            f"<b>Категория:</b> {expense.category.name}\n"
             f"💰 <b>Сумма:</b> {format_amount(expense.amount)}\n"
         )
         
