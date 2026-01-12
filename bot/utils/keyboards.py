@@ -389,3 +389,19 @@ def get_home_button() -> InlineKeyboardMarkup:
     buttons = [[("🏠 Главное меню", "start")]]
     return build_inline_keyboard(buttons)
 
+
+def get_expense_notification_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard for expense notifications from family members.
+    
+    Provides quick navigation options when receiving notification
+    about a new expense from another family member.
+    
+    Returns:
+        InlineKeyboardMarkup with navigation buttons
+    """
+    buttons = [
+        [("➕ Добавить расход", "add_expense")],
+        [("🏠 Главное меню", "start")]
+    ]
+    return build_inline_keyboard(buttons)
+

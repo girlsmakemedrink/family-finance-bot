@@ -1,7 +1,6 @@
 """Category management handlers with improved architecture."""
 
 import logging
-import re
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Optional, List
@@ -32,19 +31,16 @@ class ConversationState(IntEnum):
     # Add category states
     ADD_SELECT_FAMILY = 0
     ADD_ENTER_NAME = 1
-    ADD_SELECT_EMOJI = 2
-    ADD_CONFIRM = 3
+    ADD_CONFIRM = 2
     # Edit category states
-    EDIT_SELECT_FAMILY = 4
-    EDIT_SELECT_CATEGORY = 5
-    EDIT_SELECT_ACTION = 6
-    EDIT_ENTER_NAME = 7
-    EDIT_SELECT_EMOJI = 8
+    EDIT_SELECT_FAMILY = 3
+    EDIT_SELECT_CATEGORY = 4
+    EDIT_ENTER_NAME = 5
     # Delete category states
-    DELETE_SELECT_FAMILY = 9
-    DELETE_SELECT_CATEGORY = 10
-    DELETE_CONFIRM = 11
-    DELETE_SELECT_TARGET = 12
+    DELETE_SELECT_FAMILY = 6
+    DELETE_SELECT_CATEGORY = 7
+    DELETE_CONFIRM = 8
+    DELETE_SELECT_TARGET = 9
 
 
 class CallbackPattern:
@@ -60,10 +56,6 @@ class CallbackPattern:
     CAT_DELETE_CANCEL = "cat_delete_cancel"
     EDITCAT_PREFIX = "editcat_"
     DELCAT_PREFIX = "delcat_"
-    EMOJI_PREFIX = "emoji_"
-    EDITEMOJI_PREFIX = "editemoji_"
-    EDIT_NAME = "edit_name"
-    EDIT_ICON = "edit_icon"
     MOVETARGET_PREFIX = "movetarget_"
     DELETE_CONFIRM = "delete_confirm"
     DELETE_WITH_EXPENSES = "delete_with_expenses"
@@ -74,11 +66,10 @@ class ValidationLimits:
     """Validation limits for category inputs."""
     MIN_NAME_LENGTH = 2
     MAX_NAME_LENGTH = 50
-    MAX_EMOJI_LENGTH = 10
 
 
 class Emoji:
-    """Common emojis for categories."""
+    """Common emojis for UI elements."""
     ERROR = "❌"
     SUCCESS = "✅"
     WARNING = "⚠️"
@@ -89,42 +80,19 @@ class Emoji:
     TAG = "🏷️"
     STAR = "⭐"
     PIN = "📌"
-    PALETTE = "🎨"
     NOTE = "📝"
-    
-    # Category icons
-    FOOD_GROCERIES = ["🍔", "🍕", "🍜", "☕", "🛒"]
-    TRANSPORT = ["🚗", "🚌", "⛽", "🚕", "🚙"]
-    HOME_UTILITIES = ["🏠", "💡", "🔧", "🛠️", "🔑"]
-    CLOTHING = ["👕", "👗", "👠", "🎽", "👔"]
-    HEALTH = ["🏥", "💊", "💉", "🩺", "⚕️"]
-    ENTERTAINMENT = ["🎮", "🎬", "🎵", "🎨", "📚"]
-    TRAVEL = ["✈️", "🏖️", "🏔️", "🗺️", "🎫"]
-    FINANCE = ["💰", "💳", "💵", "🏦", "📊"]
-    ELECTRONICS = ["📱", "💻", "🖥️", "⌚", "🎧"]
-    EDUCATION = ["🎓", "📖", "✏️", "📝", "🎒"]
-    
-    @classmethod
-    def get_all_common_emojis(cls) -> List[str]:
-        """Get list of all common category emojis."""
-        return (
-            cls.FOOD_GROCERIES + cls.TRANSPORT + cls.HOME_UTILITIES +
-            cls.CLOTHING + cls.HEALTH + cls.ENTERTAINMENT +
-            cls.TRAVEL + cls.FINANCE + cls.ELECTRONICS + cls.EDUCATION
-        )
 
 
 class ErrorMessage:
     """Error messages."""
     NOT_REGISTERED = f"{Emoji.ERROR} Вы не зарегистрированы. Используйте команду /start для регистрации."
     NO_FAMILIES = f"{Emoji.ERROR} У вас нет семей.\n\nСоздайте семью или присоединитесь к существующей, чтобы управлять категориями."
-    NO_CUSTOM_CATEGORIES_EDIT = f"{Emoji.ERROR} У вас нет собственных категорий для редактирования."
+    NO_CATEGORIES_EDIT = f"{Emoji.ERROR} У вас нет категорий для редактирования."
     NO_CATEGORIES_DELETE = f"{Emoji.ERROR} У вас нет категорий для удаления."
     CATEGORY_NOT_FOUND = f"{Emoji.ERROR} Категория не найдена."
     NAME_TOO_SHORT = f"{Emoji.ERROR} Название слишком короткое. Введите минимум {ValidationLimits.MIN_NAME_LENGTH} символа:"
     NAME_TOO_LONG = f"{Emoji.ERROR} Название слишком длинное. Максимум {ValidationLimits.MAX_NAME_LENGTH} символов:"
     NAME_EXISTS = f"{Emoji.ERROR} Категория с названием '{{name}}' уже существует.\nВведите другое название:"
-    INVALID_EMOJI = f"{Emoji.ERROR} Это не похоже на эмодзи. Попробуйте еще раз или выберите из предложенных:"
     GENERAL_ERROR = f"{Emoji.ERROR} Произошла ошибка. Попробуйте позже."
     CREATE_ERROR = f"{Emoji.ERROR} Произошла ошибка при создании категории. Попробуйте позже."
     UPDATE_ERROR = f"{Emoji.ERROR} Произошла ошибка при обновлении категории."
@@ -203,38 +171,6 @@ async def send_or_edit_message(
     else:
         if update.message:
             await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
-
-
-def validate_emoji(emoji: str) -> bool:
-    """
-    Validate if string is a valid emoji.
-    
-    Args:
-        emoji: String to validate
-        
-    Returns:
-        True if valid emoji, False otherwise
-    """
-    if len(emoji) > ValidationLimits.MAX_EMOJI_LENGTH:
-        return False
-    
-    emoji_pattern = re.compile(
-        "["
-        "\U0001F600-\U0001F64F"  # emoticons
-        "\U0001F300-\U0001F5FF"  # symbols & pictographs
-        "\U0001F680-\U0001F6FF"  # transport & map symbols
-        "\U0001F700-\U0001F77F"  # alchemical symbols
-        "\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
-        "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
-        "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
-        "\U0001FA00-\U0001FA6F"  # Chess Symbols
-        "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
-        "\U00002702-\U000027B0"  # Dingbats
-        "\U000024C2-\U0001F251"
-        "]+"
-    )
-    
-    return bool(emoji_pattern.search(emoji))
 
 
 def validate_category_name(name: str) -> tuple[Optional[str], Optional[str]]:
@@ -331,13 +267,13 @@ class MessageBuilder:
         if default_cats:
             message += f"<b>{Emoji.PIN} Стандартные категории:</b>\n"
             for cat in default_cats:
-                message += f"{cat.icon} {cat.name}\n"
+                message += f"• {cat.name}\n"
             message += "\n"
         
         if custom_cats:
             message += f"<b>{Emoji.STAR} Ваши категории:</b>\n"
             for cat in custom_cats:
-                message += f"{cat.icon} {cat.name}\n"
+                message += f"• {cat.name}\n"
             message += "\n"
         else:
             message += "У вас пока нет собственных категорий.\n\n"
@@ -354,30 +290,20 @@ class MessageBuilder:
         )
     
     @staticmethod
-    def build_add_category_emoji_prompt(name: str) -> str:
-        """Build prompt for emoji selection."""
-        return (
-            f"{Emoji.SUCCESS} Название: <b>{name}</b>\n\n"
-            "Теперь выберите иконку для категории из списка ниже "
-            "или отправьте свою (любой эмодзи):"
-        )
-    
-    @staticmethod
-    def build_add_category_confirmation(name: str, icon: str) -> str:
+    def build_add_category_confirmation(name: str) -> str:
         """Build confirmation message for category creation."""
         return (
             f"{Emoji.NOTE} <b>Подтверждение</b>\n\n"
-            f"Название: <b>{name}</b>\n"
-            f"Иконка: {icon}\n\n"
+            f"Категория: <b>{name}</b>\n\n"
             "Создать категорию?"
         )
     
     @staticmethod
-    def build_category_created_message(name: str, icon: str) -> str:
+    def build_category_created_message(name: str) -> str:
         """Build success message after category creation."""
         return (
             f"{Emoji.SUCCESS} <b>Категория создана!</b>\n\n"
-            f"{icon} <b>{name}</b>\n\n"
+            f"<b>{name}</b>\n\n"
             "Теперь вы можете использовать эту категорию при добавлении расходов."
         )
     
@@ -386,24 +312,22 @@ class MessageBuilder:
         """Build prompt for category selection (editing)."""
         return (
             f"{Emoji.EDIT} <b>Редактирование категории</b>\n\n"
+            f"{Emoji.WARNING} Можно изменить любую категорию, включая стандартные.\n\n"
             "Выберите категорию для редактирования:"
         )
     
     @staticmethod
-    def build_edit_action_selection(name: str, icon: str) -> str:
-        """Build message for edit action selection."""
+    def build_edit_enter_name_prompt(name: str) -> str:
+        """Build prompt for entering new category name."""
         return (
-            f"{Emoji.EDIT} <b>Редактирование: {icon} {name}</b>\n\n"
-            "Что вы хотите изменить?"
+            f"{Emoji.EDIT} <b>Редактирование: {name}</b>\n\n"
+            "Введите новое название категории:"
         )
     
     @staticmethod
-    def build_category_updated_message(name: str, icon: str, field: str) -> str:
+    def build_category_updated_message(name: str) -> str:
         """Build success message after category update."""
-        if field == "name":
-            return f"{Emoji.SUCCESS} Название категории изменено на:\n{icon} <b>{name}</b>"
-        else:
-            return f"{Emoji.SUCCESS} Иконка категории изменена:\n{icon} <b>{name}</b>"
+        return f"{Emoji.SUCCESS} Название категории изменено на:\n<b>{name}</b>"
     
     @staticmethod
     def build_delete_category_list_prompt() -> str:
@@ -415,58 +339,56 @@ class MessageBuilder:
         )
     
     @staticmethod
-    def build_delete_with_expenses_prompt(name: str, icon: str, count: int) -> str:
+    def build_delete_with_expenses_prompt(name: str, count: int) -> str:
         """Build message when category has expenses."""
         return (
             f"{Emoji.WARNING} <b>Внимание!</b>\n\n"
-            f"В категории '{icon} {name}' есть {count} расход(ов).\n\n"
+            f"В категории '{name}' есть {count} расход(ов).\n\n"
             "Что вы хотите сделать?"
         )
     
     @staticmethod
-    def build_delete_confirm_no_expenses(name: str, icon: str) -> str:
+    def build_delete_confirm_no_expenses(name: str) -> str:
         """Build confirmation message for deletion (no expenses)."""
         return (
             f"{Emoji.DELETE} <b>Удаление категории</b>\n\n"
             f"Вы уверены, что хотите удалить категорию?\n\n"
-            f"{icon} <b>{name}</b>\n\n"
+            f"<b>{name}</b>\n\n"
             "В этой категории нет расходов."
         )
     
     @staticmethod
     def build_delete_confirm_with_move(
         from_name: str,
-        from_icon: str,
         to_name: str,
-        to_icon: str,
         count: int
     ) -> str:
         """Build confirmation message for deletion with expense move."""
         return (
             f"{Emoji.DELETE} <b>Подтверждение удаления</b>\n\n"
-            f"Удалить: {from_icon} <b>{from_name}</b>\n"
-            f"Переместить {count} расход(ов) в: {to_icon} <b>{to_name}</b>\n\n"
+            f"Удалить: <b>{from_name}</b>\n"
+            f"Переместить {count} расход(ов) в: <b>{to_name}</b>\n\n"
             "Подтвердите удаление:"
         )
     
     @staticmethod
-    def build_category_deleted_message(name: str, icon: str, moved_count: int = 0, deleted_count: int = 0, target_name: str = "", target_icon: str = "") -> str:
+    def build_category_deleted_message(name: str, moved_count: int = 0, deleted_count: int = 0, target_name: str = "") -> str:
         """Build success message after category deletion."""
-        message = f"{Emoji.SUCCESS} <b>Категория удалена!</b>\n\n{icon} {name}"
+        message = f"{Emoji.SUCCESS} <b>Категория удалена!</b>\n\n{name}"
         
         if moved_count > 0:
-            message += f"\n\n{moved_count} расход(ов) перемещено в {target_icon} {target_name}"
+            message += f"\n\n{moved_count} расход(ов) перемещено в {target_name}"
         elif deleted_count > 0:
             message += f"\n\n{deleted_count} расход(ов) также удалено"
         
         return message
     
     @staticmethod
-    def build_delete_confirm_with_expenses(name: str, icon: str, count: int) -> str:
+    def build_delete_confirm_with_expenses(name: str, count: int) -> str:
         """Build confirmation message for deletion with expenses."""
         return (
             f"{Emoji.DELETE} <b>Подтверждение удаления</b>\n\n"
-            f"Удалить категорию {icon} <b>{name}</b>\n"
+            f"Удалить категорию <b>{name}</b>\n"
             f"вместе со всеми {count} расход(ами)?\n\n"
             f"{Emoji.WARNING} <b>Это действие нельзя отменить!</b>"
         )
@@ -499,32 +421,13 @@ class KeyboardBuilder:
             [InlineKeyboardButton(f"{Emoji.PLUS} Добавить категорию", callback_data=f"{CallbackPattern.CAT_ADD_PREFIX}{family_id}")]
         ]
         
-        if has_custom:
+        if has_any:
             keyboard.append([InlineKeyboardButton(f"{Emoji.EDIT} Изменить категорию", callback_data=f"{CallbackPattern.CAT_EDIT_PREFIX}{family_id}")])
         
         if has_any:
             keyboard.append([InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию", callback_data=f"{CallbackPattern.CAT_DELETE_PREFIX}{family_id}")])
         
         keyboard = add_navigation_buttons(keyboard, context, current_state="categories")
-        return InlineKeyboardMarkup(keyboard)
-    
-    @staticmethod
-    def build_emoji_selection_keyboard(context: ContextTypes.DEFAULT_TYPE, pattern_prefix: str, state: str) -> InlineKeyboardMarkup:
-        """Build keyboard for emoji selection."""
-        emojis = Emoji.get_all_common_emojis()
-        keyboard = []
-        row = []
-        
-        for i, emoji in enumerate(emojis):
-            row.append(InlineKeyboardButton(emoji, callback_data=f"{pattern_prefix}{emoji}"))
-            if (i + 1) % 5 == 0:
-                keyboard.append(row)
-                row = []
-        
-        if row:
-            keyboard.append(row)
-        
-        keyboard = add_navigation_buttons(keyboard, context, current_state=state)
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
@@ -544,22 +447,12 @@ class KeyboardBuilder:
         """Build keyboard with list of categories."""
         keyboard = [
             [InlineKeyboardButton(
-                f"{cat.icon} {cat.name}",
+                cat.name,
                 callback_data=f"{pattern_prefix}{cat.id}"
             )]
             for cat in categories
         ]
         keyboard = add_navigation_buttons(keyboard, context, current_state=state)
-        return InlineKeyboardMarkup(keyboard)
-    
-    @staticmethod
-    def build_edit_action_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
-        """Build keyboard for edit action selection."""
-        keyboard = [
-            [InlineKeyboardButton(f"{Emoji.NOTE} Изменить название", callback_data=CallbackPattern.EDIT_NAME)],
-            [InlineKeyboardButton(f"{Emoji.PALETTE} Изменить иконку", callback_data=CallbackPattern.EDIT_ICON)]
-        ]
-        keyboard = add_navigation_buttons(keyboard, context)
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
@@ -693,53 +586,14 @@ async def add_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationState.ADD_ENTER_NAME
     
     cat_data.name = name
+    cat_data.icon = ""
     cat_data.save_to_context(context, "add_cat")
     
-    message = MessageBuilder.build_add_category_emoji_prompt(name)
-    keyboard = KeyboardBuilder.build_emoji_selection_keyboard(
-        context,
-        CallbackPattern.EMOJI_PREFIX,
-        "add_category_emoji"
-    )
+    message = MessageBuilder.build_add_category_confirmation(name)
+    keyboard = KeyboardBuilder.build_confirmation_keyboard(context)
     await update.message.reply_text(message, reply_markup=keyboard, parse_mode="HTML")
     
-    return ConversationState.ADD_SELECT_EMOJI
-
-
-async def add_category_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle emoji selection or custom emoji input."""
-    cat_data = CategoryData.from_context(context, "add_cat")
-    
-    # Check if it's a callback (emoji button) or message (custom emoji)
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        emoji = query.data.split("_")[1]
-        cat_data.icon = emoji
-        cat_data.save_to_context(context, "add_cat")
-        
-        message = MessageBuilder.build_add_category_confirmation(cat_data.name, emoji)
-        keyboard = KeyboardBuilder.build_confirmation_keyboard(context)
-        await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
-        
-        return ConversationState.ADD_CONFIRM
-    else:
-        # Custom emoji from message
-        emoji = update.message.text.strip()
-        
-        if not validate_emoji(emoji):
-            keyboard = get_home_button()
-            await update.message.reply_text(ErrorMessage.INVALID_EMOJI, reply_markup=keyboard)
-            return ConversationState.ADD_SELECT_EMOJI
-        
-        cat_data.icon = emoji
-        cat_data.save_to_context(context, "add_cat")
-        
-        message = MessageBuilder.build_add_category_confirmation(cat_data.name, emoji)
-        keyboard = KeyboardBuilder.build_confirmation_keyboard(context)
-        await update.message.reply_text(message, reply_markup=keyboard, parse_mode="HTML")
-        
-        return ConversationState.ADD_CONFIRM
+    return ConversationState.ADD_CONFIRM
 
 
 async def add_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -765,7 +619,7 @@ async def add_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
     if category is None:
         await safe_edit_message(query, ErrorMessage.CREATE_ERROR, reply_markup=keyboard)
     else:
-        message = MessageBuilder.build_category_created_message(cat_data.name, cat_data.icon)
+        message = MessageBuilder.build_category_created_message(cat_data.name)
         await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Created category {category.id} for family {cat_data.family_id}")
     
@@ -800,14 +654,14 @@ async def edit_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     cat_data = CategoryData(family_id=family_id)
     cat_data.save_to_context(context, "edit_cat")
     
-    async def get_custom_categories(session):
-        return await crud.get_family_custom_categories(session, family_id)
+    async def get_all_categories(session):
+        return await crud.get_family_categories(session, family_id)
     
-    categories = await handle_db_operation(get_custom_categories, "Error getting custom categories")
+    categories = await handle_db_operation(get_all_categories, "Error getting categories")
     
     if not categories:
         keyboard = get_home_button()
-        await safe_edit_message(query, ErrorMessage.NO_CUSTOM_CATEGORIES_EDIT, reply_markup=keyboard)
+        await safe_edit_message(query, ErrorMessage.NO_CATEGORIES_EDIT, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_edit_category_list_prompt()
@@ -823,7 +677,7 @@ async def edit_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def edit_category_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle category selection for editing."""
+    """Handle category selection for editing - go directly to name input."""
     query = update.callback_query
     await query.answer()
     
@@ -842,34 +696,11 @@ async def edit_category_select(update: Update, context: ContextTypes.DEFAULT_TYP
         await safe_edit_message(query, ErrorMessage.CATEGORY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
-    message = MessageBuilder.build_edit_action_selection(category.name, category.icon)
-    keyboard = KeyboardBuilder.build_edit_action_keyboard(context)
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    message = MessageBuilder.build_edit_enter_name_prompt(category.name)
+    keyboard = add_navigation_buttons([], context, current_state="edit_category")
+    await safe_edit_message(query, message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     
-    return ConversationState.EDIT_SELECT_ACTION
-
-
-async def edit_category_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle edit action selection."""
-    query = update.callback_query
-    await query.answer()
-    
-    action = query.data
-    
-    if action == CallbackPattern.EDIT_NAME:
-        keyboard = get_home_button()
-        await safe_edit_message(query, f"{Emoji.NOTE} Введите новое название категории:", reply_markup=keyboard)
-        return ConversationState.EDIT_ENTER_NAME
-    
-    elif action == CallbackPattern.EDIT_ICON:
-        message = f"{Emoji.PALETTE} Выберите новую иконку из списка или отправьте свою:"
-        keyboard = KeyboardBuilder.build_emoji_selection_keyboard(
-            context,
-            CallbackPattern.EDITEMOJI_PREFIX,
-            "edit_category_emoji"
-        )
-        await safe_edit_message(query, message, reply_markup=keyboard)
-        return ConversationState.EDIT_SELECT_EMOJI
+    return ConversationState.EDIT_ENTER_NAME
 
 
 async def edit_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -906,52 +737,9 @@ async def edit_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(ErrorMessage.NAME_EXISTS.format(name=name), reply_markup=keyboard)
             return ConversationState.EDIT_ENTER_NAME
         
-        message = MessageBuilder.build_category_updated_message(category.name, category.icon, "name")
+        message = MessageBuilder.build_category_updated_message(category.name)
         await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Updated category {cat_data.category_id} name to '{name}'")
-    
-    cat_data.clear_from_context(context, "edit_cat")
-    return ConversationHandler.END
-
-
-async def edit_category_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle new category emoji selection."""
-    cat_data = CategoryData.from_context(context, "edit_cat")
-    
-    # Check if it's a callback (emoji button) or message (custom emoji)
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        emoji = query.data.split("_")[1]
-    else:
-        emoji = update.message.text.strip()
-        
-        if not validate_emoji(emoji):
-            keyboard = get_home_button()
-            await update.message.reply_text(ErrorMessage.INVALID_EMOJI, reply_markup=keyboard)
-            return ConversationState.EDIT_SELECT_EMOJI
-    
-    async def update_category_icon(session):
-        category = await crud.update_category(session, cat_data.category_id, icon=emoji)
-        await session.commit()
-        return category
-    
-    category = await handle_db_operation(update_category_icon, "Error updating category icon")
-    
-    keyboard = get_home_button()
-    if category is None:
-        error_msg = ErrorMessage.UPDATE_ERROR
-        if update.callback_query:
-            await update.callback_query.edit_message_text(error_msg, reply_markup=keyboard)
-        else:
-            await update.message.reply_text(error_msg, reply_markup=keyboard)
-    else:
-        message = MessageBuilder.build_category_updated_message(category.name, category.icon, "icon")
-        if update.callback_query:
-            await update.callback_query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
-        else:
-            await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
-        logger.info(f"Updated category {cat_data.category_id} icon to '{emoji}'")
     
     cat_data.clear_from_context(context, "edit_cat")
     return ConversationHandler.END
@@ -1039,13 +827,13 @@ async def delete_category_select(update: Update, context: ContextTypes.DEFAULT_T
     
     if expense_count > 0:
         # Show options: move or delete with expenses
-        message = MessageBuilder.build_delete_with_expenses_prompt(category.name, category.icon, expense_count)
+        message = MessageBuilder.build_delete_with_expenses_prompt(category.name, expense_count)
         keyboard = KeyboardBuilder.build_delete_with_expenses_keyboard(context)
         await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
         return ConversationState.DELETE_SELECT_TARGET
     else:
         # No expenses, can delete directly
-        message = MessageBuilder.build_delete_confirm_no_expenses(category.name, category.icon)
+        message = MessageBuilder.build_delete_confirm_no_expenses(category.name)
         keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
         await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
         return ConversationState.DELETE_CONFIRM
@@ -1078,7 +866,7 @@ async def delete_category_choose_move(update: Update, context: ContextTypes.DEFA
     
     message = (
         f"{Emoji.WARNING} <b>Переместить расходы</b>\n\n"
-        f"В категории '{category.icon} {category.name}' есть {expense_count} расход(ов).\n\n"
+        f"В категории '{category.name}' есть {expense_count} расход(ов).\n\n"
         "Выберите категорию, в которую переместить эти расходы:"
     )
     keyboard = KeyboardBuilder.build_category_list_keyboard(
@@ -1117,8 +905,8 @@ async def delete_category_select_target(update: Update, context: ContextTypes.DE
     category, target_category, expense_count = result
     
     message = MessageBuilder.build_delete_confirm_with_move(
-        category.name, category.icon,
-        target_category.name, target_category.icon,
+        category.name,
+        target_category.name,
         expense_count
     )
     keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
@@ -1148,7 +936,7 @@ async def delete_category_with_expenses(update: Update, context: ContextTypes.DE
     
     category, expense_count = result
     
-    message = MessageBuilder.build_delete_confirm_with_expenses(category.name, category.icon, expense_count)
+    message = MessageBuilder.build_delete_confirm_with_expenses(category.name, expense_count)
     keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
     await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
     
@@ -1165,12 +953,10 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
     async def delete_and_process(session):
         category = await crud.get_category_by_id(session, cat_data.category_id)
         category_name = category.name
-        category_icon = category.icon
         
         moved_count = 0
         deleted_count = 0
         target_name = ""
-        target_icon = ""
         
         if cat_data.target_category_id:
             # Move expenses to another category
@@ -1181,7 +967,6 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
             )
             target_category = await crud.get_category_by_id(session, cat_data.target_category_id)
             target_name = target_category.name
-            target_icon = target_category.icon
         else:
             # Delete all expenses in this category
             deleted_count = await crud.delete_category_expenses(session, cat_data.category_id)
@@ -1189,7 +974,7 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
         await crud.delete_category(session, cat_data.category_id)
         await session.commit()
         
-        return category_name, category_icon, moved_count, deleted_count, target_name, target_icon
+        return category_name, moved_count, deleted_count, target_name
     
     result = await handle_db_operation(delete_and_process, "Error deleting category")
     
@@ -1197,9 +982,9 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
     if result is None:
         await safe_edit_message(query, ErrorMessage.DELETE_ERROR, reply_markup=keyboard)
     else:
-        category_name, category_icon, moved_count, deleted_count, target_name, target_icon = result
+        category_name, moved_count, deleted_count, target_name = result
         message = MessageBuilder.build_category_deleted_message(
-            category_name, category_icon, moved_count, deleted_count, target_name, target_icon
+            category_name, moved_count, deleted_count, target_name
         )
         await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Deleted category {cat_data.category_id}, moved {moved_count} expenses, deleted {deleted_count} expenses")
@@ -1242,10 +1027,6 @@ add_category_handler = ConversationHandler(
         ConversationState.ADD_ENTER_NAME: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, add_category_name)
         ],
-        ConversationState.ADD_SELECT_EMOJI: [
-            CallbackQueryHandler(add_category_emoji, pattern=f"^{CallbackPattern.EMOJI_PREFIX}"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, add_category_emoji)
-        ],
         ConversationState.ADD_CONFIRM: [
             CallbackQueryHandler(add_category_confirm, pattern=f"^{CallbackPattern.CAT_ADD_CONFIRM}$"),
             CallbackQueryHandler(add_category_cancel, pattern=f"^{CallbackPattern.CAT_ADD_CANCEL}$")
@@ -1273,16 +1054,8 @@ edit_category_handler = ConversationHandler(
             CallbackQueryHandler(edit_category_select, pattern=f"^{CallbackPattern.EDITCAT_PREFIX}\\d+$"),
             CallbackQueryHandler(edit_category_cancel, pattern=f"^{CallbackPattern.CAT_EDIT_CANCEL}$")
         ],
-        ConversationState.EDIT_SELECT_ACTION: [
-            CallbackQueryHandler(edit_category_action, pattern="^edit_(name|icon)$"),
-            CallbackQueryHandler(edit_category_cancel, pattern=f"^{CallbackPattern.CAT_EDIT_CANCEL}$")
-        ],
         ConversationState.EDIT_ENTER_NAME: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, edit_category_name)
-        ],
-        ConversationState.EDIT_SELECT_EMOJI: [
-            CallbackQueryHandler(edit_category_emoji, pattern=f"^{CallbackPattern.EDITEMOJI_PREFIX}"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, edit_category_emoji)
         ]
     },
     fallbacks=[

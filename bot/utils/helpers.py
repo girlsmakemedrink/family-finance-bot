@@ -358,6 +358,10 @@ async def notify_large_expense(
         if expense.description:
             message += f"📝 {expense.description}\n"
         
+        # Import keyboard for navigation buttons
+        from bot.utils.keyboards import get_expense_notification_keyboard
+        reply_markup = get_expense_notification_keyboard()
+        
         # Send notification to all family members except the one who created expense
         # family_members is a list of tuples (User, FamilyMember)
         for user, family_member in family_members:
@@ -366,7 +370,8 @@ async def notify_large_expense(
                     await bot.send_message(
                         chat_id=user.telegram_id,
                         text=message,
-                        parse_mode="HTML"
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
                     )
                     logger.info(
                         f"Sent large expense notification to user {user.id} "
@@ -420,6 +425,10 @@ async def notify_expense_to_family(
         if expense.description:
             message += f"📝 <b>Описание:</b> {expense.description}\n"
         
+        # Import keyboard for navigation buttons
+        from bot.utils.keyboards import get_expense_notification_keyboard
+        reply_markup = get_expense_notification_keyboard()
+        
         # Send notification to all family members except the one who created expense
         # family_members is a list of tuples (User, FamilyMember)
         for user, family_member in family_members:
@@ -438,7 +447,8 @@ async def notify_expense_to_family(
                 await bot.send_message(
                     chat_id=user.telegram_id,
                     text=message,
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
                 )
                 logger.info(
                     f"Sent expense notification to user {user.id} "
