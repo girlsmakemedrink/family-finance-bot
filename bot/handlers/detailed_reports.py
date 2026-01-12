@@ -98,13 +98,12 @@ def format_detailed_report(summary_data: dict, period_name: str) -> str:
         
         for cat_data in by_category:
             cat_name = cat_data['category_name']
-            cat_icon = cat_data['category_icon']
             amount = cat_data['amount']
             percentage = cat_data.get('percentage', 0)
             expenses = cat_data.get('expenses', [])
             
             # Category header with total and percentage
-            message += f"{cat_icon} <b>{cat_name}</b>\n"
+            message += f"• <b>{cat_name}</b>\n"
             message += f"💵 {format_amount(amount)} ({percentage:.1f}%)\n"
             
             # Add text bar chart
@@ -141,12 +140,11 @@ def format_detailed_report(summary_data: dict, period_name: str) -> str:
         
         for cat_data in by_category:
             cat_name = cat_data['category_name']
-            cat_icon = cat_data['category_icon']
             percentage = cat_data.get('percentage', 0)
             
             # Create percentage bar
             bar = create_text_bar(percentage, 100, length=15)
-            message += f"{cat_icon} {cat_name}\n"
+            message += f"• {cat_name}\n"
             message += f"{bar} {percentage:.1f}%\n\n"
     
     message += "━━━━━━━━━━━━━━━━━━━━━━\n"

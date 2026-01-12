@@ -78,11 +78,10 @@ async def send_monthly_summary(bot: Bot, user, summary_data: dict, month_name: s
             
             for cat_data in by_category:
                 cat_name = cat_data['category_name']
-                cat_icon = cat_data['category_icon']
                 amount = cat_data['amount']
                 percentage = cat_data.get('percentage', 0)
                 
-                message += f"{cat_icon} {cat_name}: {format_amount(amount)} ({percentage:.1f}%)\n"
+                message += f"• {cat_name}: {format_amount(amount)} ({percentage:.1f}%)\n"
         
         # Send simplified text message
         await bot.send_message(

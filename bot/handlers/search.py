@@ -323,7 +323,7 @@ class KeyboardBuilder:
         """Build keyboard for category selection."""
         keyboard = [
             [InlineKeyboardButton(
-                f"{category.icon} {category.name}",
+                category.name,
                 callback_data=f"{CallbackPattern.SEARCH_CAT_PREFIX}{category.id}"
             )]
             for category in categories

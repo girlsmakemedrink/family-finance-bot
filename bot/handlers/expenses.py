@@ -192,7 +192,6 @@ class ExpenseData:
     family_name: Optional[str] = None
     category_id: Optional[int] = None
     category_name: Optional[str] = None
-    category_icon: Optional[str] = None
     amount: Optional[Decimal] = None
     description: Optional[str] = None
 
@@ -204,7 +203,6 @@ class ExpenseData:
             family_name=context.user_data.get(f'{prefix}_family_name'),
             category_id=context.user_data.get(f'{prefix}_category_id'),
             category_name=context.user_data.get(f'{prefix}_category_name'),
-            category_icon=context.user_data.get(f'{prefix}_category_icon'),
             amount=context.user_data.get(f'{prefix}_amount'),
             description=context.user_data.get(f'{prefix}_description')
         )
@@ -219,8 +217,6 @@ class ExpenseData:
             context.user_data[f'{prefix}_category_id'] = self.category_id
         if self.category_name is not None:
             context.user_data[f'{prefix}_category_name'] = self.category_name
-        if self.category_icon is not None:
-            context.user_data[f'{prefix}_category_icon'] = self.category_icon
         if self.amount is not None:
             context.user_data[f'{prefix}_amount'] = self.amount
         if self.description is not None:
@@ -232,7 +228,6 @@ class ExpenseData:
         context.user_data.pop(f'{prefix}_family_name', None)
         context.user_data.pop(f'{prefix}_category_id', None)
         context.user_data.pop(f'{prefix}_category_name', None)
-        context.user_data.pop(f'{prefix}_category_icon', None)
         context.user_data.pop(f'{prefix}_amount', None)
         context.user_data.pop(f'{prefix}_description', None)
 
@@ -404,12 +399,12 @@ class MessageBuilder:
         )
     
     @staticmethod
-    def build_amount_input_message(family_name: str, category_icon: str, category_name: str) -> str:
+    def build_amount_input_message(family_name: str, category_name: str) -> str:
         """Build message for amount input."""
         return (
             f"{Emoji.MONEY} <b>Добавление расхода</b>\n"
             f"{Emoji.FAMILY} Семья: <b>{family_name}</b>\n"
-            f"{Emoji.CATEGORY} Категория: {category_icon} <b>{category_name}</b>\n\n"
+            f"{Emoji.CATEGORY} Категория: <b>{category_name}</b>\n\n"
             f"{Emoji.MONEY} Введите сумму расхода:\n\n"
             "💡 <b>Примеры:</b>\n"
             "• 100\n"
@@ -428,7 +423,7 @@ class MessageBuilder:
         return (
             f"{Emoji.MONEY} <b>Добавление расхода</b>\n"
             f"{Emoji.FAMILY} Семья: <b>{expense_data.family_name}</b>\n"
-            f"{Emoji.CATEGORY} Категория: {expense_data.category_icon} <b>{expense_data.category_name}</b>\n"
+            f"{Emoji.CATEGORY} Категория: <b>{expense_data.category_name}</b>\n"
             f"{Emoji.MONEY} Сумма: <b>{format_amount(expense_data.amount)}</b>\n\n"
             f"{Emoji.DESCRIPTION} Введите описание расхода (опционально):\n\n"
             "💡 <b>Примеры:</b>\n"
@@ -445,7 +440,7 @@ class MessageBuilder:
         message = (
             f"{Emoji.SUCCESS} <b>Расход успешно добавлен!</b>\n\n"
             f"{Emoji.FAMILY} <b>Семья:</b> {expense_data.family_name}\n"
-            f"{Emoji.CATEGORY} <b>Категория:</b> {expense_data.category_icon} {expense_data.category_name}\n"
+            f"{Emoji.CATEGORY} <b>Категория:</b> {expense_data.category_name}\n"
             f"{Emoji.MONEY} <b>Сумма:</b> {format_amount(expense.amount)}\n"
         )
         
@@ -515,7 +510,7 @@ class KeyboardBuilder:
         row = []
         for category in categories:
             button = InlineKeyboardButton(
-                f"{category.icon} {category.name}",
+                category.name,
                 callback_data=f"{CallbackPattern.SELECT_CATEGORY_PREFIX}{category.id}"
             )
             row.append(button)
@@ -801,12 +796,10 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     expense_data = ExpenseData.from_context(context)
     expense_data.category_id = category_id
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     expense_data.save_to_context(context)
     
     message = MessageBuilder.build_amount_input_message(
         expense_data.family_name,
-        category.icon,
         category.name
     )
     keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
@@ -953,7 +946,6 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
     # Update expense data with the new category
     expense_data.category_id = category.id
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     expense_data.save_to_context(context)
     
     # Clear temporary data
@@ -962,7 +954,6 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
     # Show success message and proceed to amount input
     message = MessageBuilder.build_amount_input_message(
         expense_data.family_name,
-        category.icon,
         category.name
     )
     keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
@@ -1061,7 +1052,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         # Update expense_data with category info
         expense_data.category_name = category.name
-        expense_data.category_icon = category.icon
         
         message = MessageBuilder.build_expense_created_message(expense_data, expense, user)
         reply_markup = get_add_another_keyboard()
@@ -1126,7 +1116,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Update expense_data with category info
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     
     message = MessageBuilder.build_expense_created_message(expense_data, expense, user)
     reply_markup = get_add_another_keyboard()
@@ -1213,7 +1202,6 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Update expense_data with category info (in case it was loaded from DB)
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     
     message = MessageBuilder.build_expense_created_message(expense_data, expense, user)
     reply_markup = get_add_another_keyboard()
@@ -1447,7 +1435,6 @@ async def display_expenses_page(update: Update, context: ContextTypes.DEFAULT_TY
             for cat in summary['by_category']:
                 message += format_category_summary(
                     cat['category_name'],
-                    cat['category_icon'],
                     cat['amount']
                 ) + "\n"
         
@@ -1839,7 +1826,7 @@ async def display_family_expenses_page(update: Update, context: ContextTypes.DEF
             for user_id_key, user_data in by_user_data.items():
                 message += f"{Emoji.USER} <b>{user_data['name']}</b> - {format_amount(user_data['amount'])}\n\n"
                 for exp in user_data['expenses'][:5]:
-                    message += f"  {exp.category.icon} {exp.category.name} - {format_amount(exp.amount)}\n"
+                    message += f"  {exp.category.name} - {format_amount(exp.amount)}\n"
                     message += f"  {Emoji.CALENDAR} {format_date(exp.date)}\n\n"
                 
                 if len(user_data['expenses']) > 5:

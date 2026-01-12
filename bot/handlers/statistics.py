@@ -281,12 +281,11 @@ def format_basic_statistics_message(stats: dict, period_name: str, stats_type: s
         lines.append("")
         
         for cat_data in stats['by_category']:
-            cat_icon = cat_data['category_icon']
             cat_name = cat_data['category_name']
             amount = cat_data['amount']
             percentage = cat_data['percentage']
             
-            lines.append(f"{cat_icon} <b>{cat_name}</b>")
+            lines.append(f"• <b>{cat_name}</b>")
             lines.append(f"   {format_amount(amount)} ({percentage:.1f}%)")
             lines.append("")
     
@@ -326,13 +325,12 @@ def format_detailed_statistics_message(stats: dict, period_name: str, stats_type
         lines.append("")
         
         for cat_data in stats['by_category']:
-            cat_icon = cat_data['category_icon']
             cat_name = cat_data['category_name']
             amount = cat_data['amount']
             percentage = cat_data['percentage']
             expenses = cat_data.get('expenses', [])
             
-            lines.append(f"{cat_icon} <b>{cat_name}</b>")
+            lines.append(f"• <b>{cat_name}</b>")
             lines.append(f"   {format_amount(amount)} ({percentage:.1f}%)")
             lines.append("")
             
