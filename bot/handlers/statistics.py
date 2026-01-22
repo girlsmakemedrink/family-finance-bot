@@ -17,6 +17,7 @@ from telegram.ext import (
 
 from bot.database import crud, get_db
 from bot.utils.formatters import format_amount, format_date
+from bot.utils.charts import create_category_chart
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
 from bot.utils.keyboards import add_navigation_buttons, get_back_button, get_home_button
 
@@ -90,7 +91,7 @@ class ErrorMessage:
     NOT_REGISTERED = f"{Emoji.ERROR} Вы не зарегистрированы. Используйте команду /start для регистрации."
     NO_FAMILIES = f"{Emoji.ERROR} У вас нет семей. Создайте семью командой /create_family или присоединитесь к существующей через /join_family."
     FAMILY_NOT_FOUND = f"{Emoji.ERROR} Семья не найдена."
-    NO_PERIODS = f"{Emoji.ERROR} Нет доступных периодов с расходами."
+    NO_PERIODS = f"{Emoji.ERROR} Нет доступных периодов с операциями."
     STATS_ERROR = f"{Emoji.ERROR} Произошла ошибка при загрузке статистики. Попробуйте позже."
 
 
@@ -265,35 +266,49 @@ def format_basic_statistics_message(stats: dict, period_name: str, stats_type: s
     """
     type_text = "Личная статистика" if stats_type == StatsType.PERSONAL else "Статистика семьи"
     
+    income_total = stats.get('income_total', 0)
+    expense_total = stats.get('expense_total', 0)
+    balance = stats.get('balance', 0)
+    
     lines = [
         f"{Emoji.STATS} <b>{type_text}</b>",
         f"{Emoji.FAMILY} Семья: {family_name}",
         f"{Emoji.CALENDAR} Период: {period_name}",
         "",
-        f"{Emoji.MONEY} <b>Общая сумма расходов:</b> {format_amount(stats['total'])}",
+        f"💹 <b>Общая сумма доходов:</b> {format_amount(income_total)}",
+        f"{Emoji.MONEY} <b>Общая сумма расходов:</b> {format_amount(expense_total)}",
+        f"🧮 <b>Баланс:</b> {format_amount(balance)}",
         ""
     ]
     
-    if stats['total'] == 0:
-        lines.append("✨ За выбранный период расходов не было!")
-    elif stats['by_category']:
+    if income_total == 0 and expense_total == 0:
+        lines.append("✨ За выбранный период операций не было!")
+        return "\n".join(lines)
+    
+    income_by_category = stats.get('income_by_category', [])
+    if income_by_category:
+        lines.append("<b>Доходы по категориям:</b>")
+        lines.append("")
+        lines.append(create_category_chart(income_by_category, max_categories=5))
+        lines.append("")
+    
+    expense_by_category = stats.get('expense_by_category', [])
+    if expense_by_category:
         lines.append("<b>Расходы по категориям:</b>")
         lines.append("")
-        
-        for cat_data in stats['by_category']:
-            cat_name = cat_data['category_name']
-            amount = cat_data['amount']
-            percentage = cat_data['percentage']
-            
-            lines.append(f"• <b>{cat_name}</b>")
-            lines.append(f"   {format_amount(amount)} ({percentage:.1f}%)")
-            lines.append("")
+        lines.append(create_category_chart(expense_by_category, max_categories=5))
     
     return "\n".join(lines)
 
 
-def format_detailed_statistics_message(stats: dict, period_name: str, stats_type: str, family_name: str) -> str:
-    """Format detailed statistics message with individual expenses.
+def format_detailed_statistics_message(
+    stats: dict,
+    income_stats: dict,
+    period_name: str,
+    stats_type: str,
+    family_name: str
+) -> str:
+    """Format detailed statistics message with individual transactions.
     
     Args:
         stats: Statistics data from get_detailed_statistics
@@ -308,89 +323,84 @@ def format_detailed_statistics_message(stats: dict, period_name: str, stats_type
     from collections import defaultdict
     
     type_text = "Детализированная личная статистика" if stats_type == StatsType.PERSONAL else "Детализированная статистика семьи"
+    income_total = income_stats.get('total', Decimal('0')) if income_stats else Decimal('0')
+    expense_total = stats.get('total', Decimal('0')) if stats else Decimal('0')
     
     lines = [
         f"{Emoji.DOCUMENT} <b>{type_text}</b>",
         f"{Emoji.FAMILY} Семья: {family_name}",
         f"{Emoji.CALENDAR} Период: {period_name}",
         "",
-        f"{Emoji.MONEY} <b>Общая сумма расходов:</b> {format_amount(stats['total'])}",
+        f"💹 <b>Общая сумма доходов:</b> {format_amount(income_total)}",
+        f"{Emoji.MONEY} <b>Общая сумма расходов:</b> {format_amount(expense_total)}",
         ""
     ]
-    
-    if stats['total'] == 0:
-        lines.append("✨ За выбранный период расходов не было!")
-    elif stats['by_category']:
-        lines.append("<b>Расходы по категориям:</b>")
-        lines.append("")
-        
-        for cat_data in stats['by_category']:
-            cat_name = cat_data['category_name']
-            amount = cat_data['amount']
-            percentage = cat_data['percentage']
-            expenses = cat_data.get('expenses', [])
-            
-            lines.append(f"• <b>{cat_name}</b>")
-            lines.append(f"   {format_amount(amount)} ({percentage:.1f}%)")
+
+    def append_section(section_title: str, section_stats: dict, is_income: bool) -> None:
+        if not section_stats or section_stats.get('total', Decimal('0')) == 0:
+            lines.append(f"✨ За выбранный период {'доходов' if is_income else 'расходов'} не было!")
             lines.append("")
-            
-            if expenses:
-                if stats_type == StatsType.FAMILY:
-                    # Group expenses by user for family statistics
-                    user_expenses = defaultdict(list)
-                    user_totals = defaultdict(lambda: Decimal('0'))
-                    
-                    for expense in expenses:
-                        user_id = expense['user_id']
-                        user_name = expense['user_name']
-                        user_expenses[user_id].append(expense)
-                        user_totals[user_id] += expense['amount']
-                        # Store user name for later use
-                        if 'user_name' not in user_expenses[user_id][0]:
-                            user_expenses[user_id][0]['stored_user_name'] = user_name
-                    
-                    # Display expenses grouped by user
-                    for user_id, user_expense_list in user_expenses.items():
-                        user_name = user_expense_list[0]['user_name']
-                        user_total = user_totals[user_id]
-                        
-                        lines.append(f"   👤 <b>{user_name}:</b> {format_amount(user_total)}")
-                        
-                        # Show expenses for this user (limit to 10 per user)
-                        for expense in user_expense_list[:10]:
+            return
+        if section_stats.get('by_category'):
+            lines.append(f"<b>{section_title}</b>")
+            lines.append("")
+            for cat_data in section_stats['by_category']:
+                cat_name = cat_data['category_name']
+                amount = cat_data['amount']
+                percentage = cat_data['percentage']
+                expenses = cat_data.get('expenses', [])
+
+                lines.append(f"• <b>{cat_name}</b>")
+                lines.append(f"   {format_amount(amount)} ({percentage:.1f}%)")
+                lines.append("")
+
+                if expenses:
+                    has_users = expenses and 'user_id' in expenses[0] and 'user_name' in expenses[0]
+                    if stats_type == StatsType.FAMILY and has_users:
+                        user_expenses = defaultdict(list)
+                        user_totals = defaultdict(lambda: Decimal('0'))
+
+                        for expense in expenses:
+                            user_id = expense['user_id']
+                            user_name = expense['user_name']
+                            user_expenses[user_id].append(expense)
+                            user_totals[user_id] += expense['amount']
+                            if 'user_name' not in user_expenses[user_id][0]:
+                                user_expenses[user_id][0]['stored_user_name'] = user_name
+
+                        for _, user_expense_list in user_expenses.items():
+                            user_name = user_expense_list[0]['user_name']
+                            user_total = user_totals[user_expense_list[0]['user_id']]
+                            lines.append(f"   👤 <b>{user_name}:</b> {format_amount(user_total)}")
+
+                            for expense in user_expense_list[:10]:
+                                date_str = format_date(expense['date'])
+                                amount_str = format_amount(expense['amount'])
+                                desc = expense['description'] or "—"
+                                description = desc[:40] + "..." if len(desc) > 40 else desc
+                                lines.append(f"      • {date_str}: {amount_str}")
+                                lines.append(f"        {description}")
+
+                            if len(user_expense_list) > 10:
+                                lines.append(f"      <i>... и еще {len(user_expense_list) - 10} операций</i>")
+                            lines.append("")
+                    else:
+                        lines.append("   <i>Детализация:</i>")
+                        for expense in expenses[:20]:
                             date_str = format_date(expense['date'])
                             amount_str = format_amount(expense['amount'])
-                            
-                            # Handle None description
-                            desc = expense['description'] or "—"
+                            desc = expense['description'] or ("Без описания" if not is_income else "—")
                             description = desc[:40] + "..." if len(desc) > 40 else desc
-                            
-                            lines.append(f"      • {date_str}: {amount_str}")
-                            lines.append(f"        {description}")
-                        
-                        if len(user_expense_list) > 10:
-                            lines.append(f"      <i>... и еще {len(user_expense_list) - 10} расходов</i>")
-                        
-                        lines.append("")
-                else:
-                    # Personal statistics - simple list
-                    lines.append("   <i>Детализация:</i>")
-                    for expense in expenses[:20]:  # Show max 20 expenses per category
-                        date_str = format_date(expense['date'])
-                        amount_str = format_amount(expense['amount'])
-                        
-                        # Handle None description
-                        desc = expense['description'] or "Без описания"
-                        description = desc[:40] + "..." if len(desc) > 40 else desc
-                        
-                        lines.append(f"   • {date_str}: {amount_str}")
-                        lines.append(f"     {description}")
-                        lines.append("")
-                    
-                    if len(expenses) > 20:
-                        lines.append(f"   <i>... и еще {len(expenses) - 20} расходов</i>")
-                        lines.append("")
-    
+                            lines.append(f"   • {date_str}: {amount_str}")
+                            lines.append(f"     {description}")
+                            lines.append("")
+                        if len(expenses) > 20:
+                            lines.append(f"   <i>... и еще {len(expenses) - 20} операций</i>")
+                            lines.append("")
+
+    append_section("Доходы по категориям:", income_stats, is_income=True)
+    append_section("Расходы по категориям:", stats, is_income=False)
+
     return "\n".join(lines)
 
 
@@ -520,7 +530,7 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             await update.message.reply_text(message_text)
         return ConversationHandler.END
     
-    message_text = f"{Emoji.STATS} <b>Статистика расходов</b>\n\nВыберите тип статистики:"
+    message_text = f"{Emoji.STATS} <b>Статистика финансов</b>\n\nВыберите тип статистики:"
     keyboard = KeyboardBuilder.build_type_selection_keyboard(context)
     
     if query:
@@ -769,7 +779,7 @@ async def show_basic_statistics(query, context: ContextTypes.DEFAULT_TYPE) -> in
     entity_id = stats_data.family_id if is_family else user_id
     
     async def get_statistics(session):
-        return await crud.get_period_statistics(
+        return await crud.get_period_financial_statistics(
             session, entity_id,
             stats_data.start_date, stats_data.end_date,
             is_family=is_family
@@ -821,7 +831,17 @@ async def stats_show_detailed_report(update: Update, context: ContextTypes.DEFAU
             is_family=is_family
         )
     
+    async def get_income_statistics(session):
+        return await crud.get_period_income_statistics(
+            session,
+            entity_id,
+            stats_data.start_date,
+            stats_data.end_date,
+            is_family=is_family
+        )
+    
     stats = await handle_db_operation(get_statistics, "Error getting detailed statistics")
+    income_stats = await handle_db_operation(get_income_statistics, "Error getting income statistics")
     
     if stats is None:
         keyboard = get_home_button()
@@ -830,7 +850,7 @@ async def stats_show_detailed_report(update: Update, context: ContextTypes.DEFAU
     
     period_name = format_period_name(stats_data.year, stats_data.month)
     message_text = format_detailed_statistics_message(
-        stats, period_name, stats_data.stats_type, stats_data.family_name
+        stats, income_stats, period_name, stats_data.stats_type, stats_data.family_name
     )
     
     # Check message length and split if necessary
@@ -914,7 +934,7 @@ async def stats_export_html_handler(update: Update, context: ContextTypes.DEFAUL
     entity_id = stats_data.family_id if is_family else user_id
     
     async def get_statistics(session):
-        return await crud.get_period_statistics(
+        return await crud.get_period_financial_statistics(
             session, entity_id,
             stats_data.start_date, stats_data.end_date,
             is_family=is_family
@@ -922,7 +942,9 @@ async def stats_export_html_handler(update: Update, context: ContextTypes.DEFAUL
     
     stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
     
-    if not stats or stats.get('total', 0) == 0:
+    income_total = stats.get('income_total', 0) if stats else 0
+    expense_total = stats.get('expense_total', 0) if stats else 0
+    if not stats or (income_total == 0 and expense_total == 0):
         await query.edit_message_text(
             f"{Emoji.ERROR} Нет данных для экспорта за выбранный период.\n\n"
             "Возвращаюсь к статистике..."
@@ -931,7 +953,7 @@ async def stats_export_html_handler(update: Update, context: ContextTypes.DEFAUL
     
     # Format period name
     period_name = format_period_name(stats_data.year, stats_data.month)
-    family_name = stats_data.family_name if is_family else "Личные расходы"
+    family_name = stats_data.family_name if is_family else "Личные финансы"
     
     try:
         html_file = await export_monthly_report(family_name, period_name, stats)
@@ -1025,7 +1047,7 @@ stats_handler = ConversationHandler(
         CallbackQueryHandler(stats_cancel, pattern=f"^{CallbackPattern.STATS_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|quick_expense|search|my_families|create_family|join_family|family_settings)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|quick_expense|search|my_families|create_family|join_family|family_settings)$")
     ],
     allow_reentry=True,
     name="stats_conversation",

@@ -34,6 +34,12 @@ class RoleEnum(enum.Enum):
     MEMBER = "member"
 
 
+class CategoryTypeEnum(enum.Enum):
+    """Enum for category type."""
+    EXPENSE = "expense"
+    INCOME = "income"
+
+
 def generate_invite_code(length: int = 8) -> str:
     """Generate a random invite code for family.
     
@@ -79,6 +85,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    incomes: Mapped[list["Income"]] = relationship(
+        "Income",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
     
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id}, name={self.name})>"
@@ -108,6 +119,11 @@ class Family(Base):
     )
     expenses: Mapped[list["Expense"]] = relationship(
         "Expense",
+        back_populates="family",
+        cascade="all, delete-orphan"
+    )
+    incomes: Mapped[list["Income"]] = relationship(
+        "Income",
         back_populates="family",
         cascade="all, delete-orphan"
     )
@@ -162,6 +178,15 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     icon: Mapped[str] = mapped_column(String(10), nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    category_type: Mapped[CategoryTypeEnum] = mapped_column(
+        Enum(
+            CategoryTypeEnum,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+            native_enum=False
+        ),
+        default=CategoryTypeEnum.EXPENSE,
+        nullable=False
+    )
     family_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("families.id", ondelete="CASCADE"),
@@ -173,6 +198,10 @@ class Category(Base):
         "Expense",
         back_populates="category"
     )
+    incomes: Mapped[list["Income"]] = relationship(
+        "Income",
+        back_populates="category"
+    )
     family: Mapped[Optional["Family"]] = relationship(
         "Family",
         backref="custom_categories"
@@ -180,12 +209,16 @@ class Category(Base):
     
     # Unique constraint for family_id + name combination
     __table_args__ = (
-        UniqueConstraint('family_id', 'name', name='uq_family_category_name'),
+        UniqueConstraint('family_id', 'name', 'category_type', name='uq_family_category_name_type'),
         Index('ix_categories_family', 'family_id'),
     )
     
     def __repr__(self) -> str:
-        return f"<Category(id={self.id}, name={self.name}, icon={self.icon}, is_default={self.is_default}, family_id={self.family_id})>"
+        return (
+            f"<Category(id={self.id}, name={self.name}, icon={self.icon}, "
+            f"type={self.category_type.value}, is_default={self.is_default}, "
+            f"family_id={self.family_id})>"
+        )
 
 
 class Expense(Base):
@@ -233,6 +266,54 @@ class Expense(Base):
     def __repr__(self) -> str:
         return (
             f"<Expense(id={self.id}, user_id={self.user_id}, "
+            f"family_id={self.family_id}, amount={self.amount})>"
+        )
+
+
+class Income(Base):
+    """Income model for tracking family income."""
+
+    __tablename__ = "incomes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    family_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("families.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    category_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("categories.id", ondelete="RESTRICT"),
+        nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(precision=12, scale=2),
+        nullable=False
+    )
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="incomes")
+    family: Mapped["Family"] = relationship("Family", back_populates="incomes")
+    category: Mapped["Category"] = relationship("Category", back_populates="incomes")
+
+    # Indexes for better query performance
+    __table_args__ = (
+        Index('ix_incomes_user_family', 'user_id', 'family_id'),
+        Index('ix_incomes_family_date', 'family_id', 'date'),
+        Index('ix_incomes_category', 'category_id'),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<Income(id={self.id}, user_id={self.user_id}, "
             f"family_id={self.family_id}, amount={self.amount})>"
         )
 

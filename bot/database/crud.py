@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import Category, Expense, ExpenseTemplate, Family, FamilyMember, User
+from .models import Category, CategoryTypeEnum, Expense, ExpenseTemplate, Family, FamilyMember, Income, User
 
 logger = logging.getLogger(__name__)
 
@@ -549,7 +549,8 @@ async def is_family_admin(
 # ============================================================================
 
 async def get_default_categories(
-    session: AsyncSession
+    session: AsyncSession,
+    category_type: Optional[CategoryTypeEnum] = None
 ) -> List[Category]:
     """Get all default categories.
     
@@ -560,11 +561,11 @@ async def get_default_categories(
         List of default Category objects
     """
     try:
-        result = await session.execute(
-            select(Category)
-            .where(Category.is_default == True)
-            .order_by(Category.id)
-        )
+        query = select(Category).where(Category.is_default == True)
+        if category_type:
+            query = query.where(Category.category_type == category_type)
+        query = query.order_by(Category.id)
+        result = await session.execute(query)
         categories = result.scalars().all()
         
         logger.info(f"Found {len(categories)} default categories")
@@ -625,7 +626,8 @@ async def get_all_categories(
 
 async def get_family_categories(
     session: AsyncSession,
-    family_id: int
+    family_id: int,
+    category_type: Optional[CategoryTypeEnum] = None
 ) -> List[Category]:
     """Get all categories available for a family (default + family-specific).
     
@@ -637,14 +639,14 @@ async def get_family_categories(
         List of Category objects (default categories + family's custom categories)
     """
     try:
-        result = await session.execute(
-            select(Category)
-            .where(
-                (Category.is_default == True) | 
-                (Category.family_id == family_id)
-            )
-            .order_by(Category.is_default.desc(), Category.name)
+        query = select(Category).where(
+            (Category.is_default == True) |
+            (Category.family_id == family_id)
         )
+        if category_type:
+            query = query.where(Category.category_type == category_type)
+        query = query.order_by(Category.is_default.desc(), Category.name)
+        result = await session.execute(query)
         categories = result.scalars().all()
         
         logger.info(
@@ -659,7 +661,8 @@ async def get_family_categories(
 
 async def get_family_custom_categories(
     session: AsyncSession,
-    family_id: int
+    family_id: int,
+    category_type: Optional[CategoryTypeEnum] = None
 ) -> List[Category]:
     """Get only custom categories created by a family.
     
@@ -671,11 +674,11 @@ async def get_family_custom_categories(
         List of custom Category objects for the family
     """
     try:
-        result = await session.execute(
-            select(Category)
-            .where(Category.family_id == family_id)
-            .order_by(Category.name)
-        )
+        query = select(Category).where(Category.family_id == family_id)
+        if category_type:
+            query = query.where(Category.category_type == category_type)
+        query = query.order_by(Category.name)
+        result = await session.execute(query)
         categories = result.scalars().all()
         
         logger.info(
@@ -694,7 +697,8 @@ async def create_category(
     session: AsyncSession,
     name: str,
     icon: str,
-    family_id: Optional[int] = None
+    family_id: Optional[int] = None,
+    category_type: CategoryTypeEnum = CategoryTypeEnum.EXPENSE
 ) -> Category:
     """Create a new category.
     
@@ -712,7 +716,8 @@ async def create_category(
             name=name,
             icon=icon,
             is_default=family_id is None,
-            family_id=family_id
+            family_id=family_id,
+            category_type=category_type
         )
         session.add(category)
         await session.flush()
@@ -843,6 +848,44 @@ async def move_expenses_to_category(
         raise
 
 
+async def move_incomes_to_category(
+    session: AsyncSession,
+    old_category_id: int,
+    new_category_id: int
+) -> int:
+    """Move all incomes from one category to another.
+    
+    Args:
+        session: Database session
+        old_category_id: Source category ID
+        new_category_id: Target category ID
+        
+    Returns:
+        Number of incomes moved
+    """
+    try:
+        # Update all incomes with old category to new category
+        result = await session.execute(
+            Income.__table__.update()
+            .where(Income.category_id == old_category_id)
+            .values(category_id=new_category_id)
+        )
+        count = result.rowcount if result.rowcount is not None else 0
+        
+        logger.info(
+            f"Moved {count} incomes from category {old_category_id} "
+            f"to {new_category_id}"
+        )
+        
+        return count
+    except Exception as e:
+        logger.error(
+            f"Error moving incomes from category {old_category_id} "
+            f"to {new_category_id}: {e}"
+        )
+        raise
+
+
 async def count_category_expenses(
     session: AsyncSession,
     category_id: int
@@ -870,6 +913,35 @@ async def count_category_expenses(
         return count or 0
     except Exception as e:
         logger.error(f"Error counting expenses for category {category_id}: {e}")
+        raise
+
+
+async def count_category_incomes(
+    session: AsyncSession,
+    category_id: int
+) -> int:
+    """Count number of incomes in a category.
+    
+    Args:
+        session: Database session
+        category_id: Category ID
+        
+    Returns:
+        Number of incomes in the category
+    """
+    try:
+        from sqlalchemy import func
+        
+        result = await session.execute(
+            select(func.count(Income.id)).where(Income.category_id == category_id)
+        )
+        count = result.scalar_one()
+        
+        logger.info(f"Category {category_id} has {count} incomes")
+        
+        return count or 0
+    except Exception as e:
+        logger.error(f"Error counting incomes for category {category_id}: {e}")
         raise
 
 
@@ -910,10 +982,41 @@ async def delete_category_expenses(
         raise
 
 
+async def delete_category_incomes(
+    session: AsyncSession,
+    category_id: int
+) -> int:
+    """Delete all incomes in a category.
+    
+    Args:
+        session: Database session
+        category_id: Category ID
+        
+    Returns:
+        Number of incomes deleted
+    """
+    try:
+        from sqlalchemy import delete
+        
+        # Delete all incomes with this category
+        result = await session.execute(
+            delete(Income).where(Income.category_id == category_id)
+        )
+        count = result.rowcount if result.rowcount is not None else 0
+        
+        logger.info(f"Deleted {count} incomes from category {category_id}")
+        
+        return count
+    except Exception as e:
+        logger.error(f"Error deleting incomes for category {category_id}: {e}")
+        raise
+
+
 async def category_name_exists(
     session: AsyncSession,
     name: str,
     family_id: Optional[int] = None,
+    category_type: Optional[CategoryTypeEnum] = None,
     exclude_category_id: Optional[int] = None
 ) -> bool:
     """Check if category name already exists for a family.
@@ -932,6 +1035,8 @@ async def category_name_exists(
             Category.name == name,
             Category.family_id == family_id
         )
+        if category_type:
+            query = query.where(Category.category_type == category_type)
         
         if exclude_category_id is not None:
             query = query.where(Category.id != exclude_category_id)
@@ -989,6 +1094,49 @@ async def create_expense(
         return expense
     except Exception as e:
         logger.error(f"Error creating expense: {e}")
+        raise
+
+
+async def create_income(
+    session: AsyncSession,
+    user_id: int,
+    family_id: int,
+    category_id: int,
+    amount: float,
+    description: Optional[str] = None
+) -> Income:
+    """Create a new income.
+    
+    Args:
+        session: Database session
+        user_id: User ID who created the income
+        family_id: Family ID
+        category_id: Category ID
+        amount: Income amount
+        description: Optional description
+        
+    Returns:
+        Created Income object
+    """
+    try:
+        income = Income(
+            user_id=user_id,
+            family_id=family_id,
+            category_id=category_id,
+            amount=Decimal(str(amount)),
+            description=description
+        )
+        session.add(income)
+        await session.flush()
+        
+        logger.info(
+            f"Created income: {income.amount} "
+            f"(user_id={user_id}, family_id={family_id})"
+        )
+        
+        return income
+    except Exception as e:
+        logger.error(f"Error creating income: {e}")
         raise
 
 
@@ -1951,6 +2099,7 @@ async def get_period_statistics(
             )
             .join(Category, Expense.category_id == Category.id)
         )
+        query = query.where(Category.category_type == CategoryTypeEnum.EXPENSE)
         
         # Apply entity filter (user or family)
         if is_family:
@@ -1997,6 +2146,35 @@ async def get_period_statistics(
         for cat_data in by_category:
             if total_amount > 0:
                 cat_data['percentage'] = float((cat_data['amount'] / total_amount) * 100)
+            
+            income_query = (
+                select(Income)
+                .where(Income.category_id == cat_data['category_id'])
+            )
+            
+            if is_family:
+                income_query = income_query.where(Income.family_id == entity_id)
+            else:
+                income_query = income_query.where(Income.user_id == entity_id)
+            
+            if start_date:
+                income_query = income_query.where(Income.date >= start_date)
+            if end_date:
+                income_query = income_query.where(Income.date <= end_date)
+            
+            income_query = income_query.order_by(Income.date.desc())
+            
+            income_result = await session.execute(income_query)
+            incomes = income_result.scalars().all()
+            
+            cat_data['expenses'] = [
+                {
+                    'date': income.date,
+                    'amount': income.amount,
+                    'description': income.description or "—"
+                }
+                for income in incomes
+            ]
             
             # Get individual expenses for this category
             expense_query = (
@@ -2060,6 +2238,153 @@ async def get_period_statistics(
             f"Error getting period statistics for {entity_type} {entity_id}: {e}"
         )
         raise
+
+
+async def get_period_income_statistics(
+    session: AsyncSession,
+    entity_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    is_family: bool = False
+) -> dict:
+    """Get income statistics for a period.
+    
+    Args:
+        session: Database session
+        entity_id: User ID or Family ID
+        start_date: Optional start date for filtering
+        end_date: Optional end date for filtering
+        is_family: If True, get statistics for family; if False, for user
+        
+    Returns:
+        Dictionary with income statistics:
+        {
+            'total': Decimal,
+            'count': int,
+            'by_category': [
+                {
+                    'category_id': int,
+                    'category_name': str,
+                    'category_icon': str,
+                    'amount': Decimal,
+                    'count': int,
+                    'percentage': float
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        from sqlalchemy import func
+        
+        query = (
+            select(
+                Category.id,
+                Category.name,
+                Category.icon,
+                func.sum(Income.amount).label('total_amount'),
+                func.count(Income.id).label('income_count')
+            )
+            .join(Category, Income.category_id == Category.id)
+        )
+        query = query.where(Category.category_type == CategoryTypeEnum.INCOME)
+        
+        if is_family:
+            query = query.where(Income.family_id == entity_id)
+        else:
+            query = query.where(Income.user_id == entity_id)
+        
+        if start_date:
+            query = query.where(Income.date >= start_date)
+        if end_date:
+            query = query.where(Income.date <= end_date)
+        
+        query = query.group_by(Category.id, Category.name, Category.icon)
+        query = query.order_by(func.sum(Income.amount).desc())
+        
+        result = await session.execute(query)
+        rows = result.all()
+        
+        total_amount = Decimal('0')
+        total_count = 0
+        by_category = []
+        
+        for row in rows:
+            category_total = Decimal(str(row.total_amount))
+            category_count = row.income_count
+            
+            total_amount += category_total
+            total_count += category_count
+            
+            by_category.append({
+                'category_id': row.id,
+                'category_name': row.name,
+                'category_icon': row.icon,
+                'amount': category_total,
+                'count': category_count,
+                'percentage': 0.0
+            })
+        
+        for cat_data in by_category:
+            if total_amount > 0:
+                cat_data['percentage'] = float((cat_data['amount'] / total_amount) * 100)
+        
+        statistics = {
+            'total': total_amount,
+            'count': total_count,
+            'by_category': by_category
+        }
+        
+        entity_type = "family" if is_family else "user"
+        logger.info(
+            f"Generated income statistics for {entity_type} {entity_id}: "
+            f"total={total_amount}, count={total_count}"
+        )
+        
+        return statistics
+    except Exception as e:
+        entity_type = "family" if is_family else "user"
+        logger.error(
+            f"Error getting income statistics for {entity_type} {entity_id}: {e}"
+        )
+        raise
+
+
+async def get_period_financial_statistics(
+    session: AsyncSession,
+    entity_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    is_family: bool = False
+) -> dict:
+    """Get combined income and expense statistics for a period."""
+    expense_stats = await get_period_statistics(
+        session,
+        entity_id,
+        start_date,
+        end_date,
+        is_family=is_family
+    )
+    income_stats = await get_period_income_statistics(
+        session,
+        entity_id,
+        start_date,
+        end_date,
+        is_family=is_family
+    )
+    
+    income_total = income_stats.get('total', Decimal('0'))
+    expense_total = expense_stats.get('total', Decimal('0'))
+    
+    return {
+        'income_total': income_total,
+        'income_count': income_stats.get('count', 0),
+        'income_by_category': income_stats.get('by_category', []),
+        'expense_total': expense_total,
+        'expense_count': expense_stats.get('count', 0),
+        'expense_by_category': expense_stats.get('by_category', []),
+        'balance': income_total - expense_total
+    }
 
 
 async def get_daily_expenses(
@@ -2618,49 +2943,50 @@ async def get_available_periods(
     try:
         from sqlalchemy import func, extract
         
-        # Build base query
-        base_query = select(Expense.date)
+        # Build queries for expenses and incomes
+        expense_filter = Expense.family_id == entity_id if is_family else Expense.user_id == entity_id
+        income_filter = Income.family_id == entity_id if is_family else Income.user_id == entity_id
         
-        # Apply entity filter
-        if is_family:
-            base_query = base_query.where(Expense.family_id == entity_id)
-        else:
-            base_query = base_query.where(Expense.user_id == entity_id)
-        
-        # Get unique year-month combinations
-        query_months = (
+        query_expense_months = (
             select(
                 extract('year', Expense.date).label('year'),
                 extract('month', Expense.date).label('month')
             )
-            .where(
-                Expense.family_id == entity_id if is_family else Expense.user_id == entity_id
-            )
+            .where(expense_filter)
             .group_by('year', 'month')
-            .order_by('year', 'month')
         )
-        
-        result = await session.execute(query_months)
-        month_rows = result.all()
-        months = [(int(row.year), int(row.month)) for row in month_rows]
-        
-        # Get unique years
-        query_years = (
-            select(extract('year', Expense.date).label('year'))
-            .where(
-                Expense.family_id == entity_id if is_family else Expense.user_id == entity_id
+        query_income_months = (
+            select(
+                extract('year', Income.date).label('year'),
+                extract('month', Income.date).label('month')
             )
-            .group_by('year')
-            .order_by('year')
+            .where(income_filter)
+            .group_by('year', 'month')
         )
         
-        result = await session.execute(query_years)
-        year_rows = result.scalars().all()
-        years = [int(year) for year in year_rows]
+        expense_months = (await session.execute(query_expense_months)).all()
+        income_months = (await session.execute(query_income_months)).all()
+        months_set = {(int(row.year), int(row.month)) for row in expense_months + income_months}
+        months = sorted(months_set)
+        
+        query_expense_years = (
+            select(extract('year', Expense.date).label('year'))
+            .where(expense_filter)
+            .group_by('year')
+        )
+        query_income_years = (
+            select(extract('year', Income.date).label('year'))
+            .where(income_filter)
+            .group_by('year')
+        )
+        
+        expense_years = (await session.execute(query_expense_years)).scalars().all()
+        income_years = (await session.execute(query_income_years)).scalars().all()
+        years = sorted({int(year) for year in expense_years + income_years})
         
         entity_type = "family" if is_family else "user"
         logger.info(
-            f"Found {len(months)} months and {len(years)} years with expenses "
+            f"Found {len(months)} months and {len(years)} years with transactions "
             f"for {entity_type} {entity_id}"
         )
         
@@ -2736,6 +3062,7 @@ async def get_detailed_statistics(
             )
             .join(Category, Expense.category_id == Category.id)
         )
+        query_totals = query_totals.where(Category.category_type == CategoryTypeEnum.EXPENSE)
         
         # Apply entity filter
         if is_family:

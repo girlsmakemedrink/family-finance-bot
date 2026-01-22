@@ -1,4 +1,4 @@
-"""HTML report generation for expenses."""
+"""HTML report generation for financial statistics."""
 
 import logging
 from datetime import datetime
@@ -24,7 +24,7 @@ def generate_html_report(
     budget: Optional[Decimal] = None,
     report_type: str = "monthly"
 ) -> BytesIO:
-    """Generate HTML report for expenses.
+    """Generate HTML report for financial statistics.
     
     Args:
         family_name: Name of the family
@@ -61,43 +61,54 @@ def _create_html_structure(
 ) -> str:
     """Create HTML structure for the report."""
     
-    total = stats.get('total', Decimal('0'))
-    categories = stats.get('by_category', [])
+    expense_total = stats.get('expense_total', stats.get('total', Decimal('0')))
+    income_total = stats.get('income_total', Decimal('0'))
+    balance = stats.get('balance', income_total - expense_total)
+    expense_categories = stats.get('expense_by_category', stats.get('by_category', []))
+    income_categories = stats.get('income_by_category', [])
     
     # Calculate statistics
-    remaining = budget - total if budget else None
-    percentage = (total / budget * 100) if budget and budget > 0 else 0
-    savings_percentage = ((budget - total) / budget * 100) if budget and budget > 0 else 0
+    remaining = budget - expense_total if budget else None
+    percentage = (expense_total / budget * 100) if budget and budget > 0 else 0
+    savings_percentage = ((budget - expense_total) / budget * 100) if budget and budget > 0 else 0
     
     html = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{'Месячный' if report_type == 'monthly' else 'Годовой'} бюджет - {family_name}</title>
+    <title>{'Месячный' if report_type == 'monthly' else 'Годовой'} отчет - {family_name}</title>
     <style>
         {_get_css_styles()}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 class="main-title">{'Месячный' if report_type == 'monthly' else 'Годовой'} бюджет</h1>
+        <h1 class="main-title">{'Месячный' if report_type == 'monthly' else 'Годовой'} отчет</h1>
         
         {_create_budget_info(budget) if budget else ''}
         
         <div class="info-section">
             <p><strong>Семья:</strong> {family_name}</p>
             <p><strong>Период:</strong> {period_name}</p>
-            <p class="total-amount"><strong>Общая сумма расходов:</strong> {total:,.0f} ₽</p>
+            <p class="total-amount"><strong>Доходы:</strong> {income_total:,.0f} ₽</p>
+            <p class="total-amount"><strong>Расходы:</strong> {expense_total:,.0f} ₽</p>
+            <p class="total-amount"><strong>Баланс:</strong> {balance:,.0f} ₽</p>
         </div>
         
-        {_create_statistics_section(total, budget, remaining, savings_percentage) if budget else ''}
+        {_create_statistics_section(expense_total, budget, remaining, savings_percentage) if budget else ''}
         
-        {_create_chart_section(categories, total)}
+        {_create_chart_section(expense_categories, expense_total, "Расходы")}
+        {_create_chart_section(income_categories, income_total, "Доходы")}
         
         <div class="section">
             <h2 class="section-title">Детальные расходы по категориям</h2>
-            {_create_detailed_categories(categories)}
+            {_create_detailed_categories(expense_categories, "expense")}
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Детальные доходы по категориям</h2>
+            {_create_detailed_categories(income_categories, "income")}
         </div>
         
         <div class="footer">
@@ -415,15 +426,15 @@ def _create_statistics_section(
     """
 
 
-def _create_chart_section(categories: List[Dict], max_amount: Decimal) -> str:
+def _create_chart_section(categories: List[Dict], max_amount: Decimal, title: str) -> str:
     """Create chart section with bar visualization."""
     if not categories:
         return ""
     
-    html = """
+    html = f"""
         <div class="section">
             <div class="chart">
-                <div class="chart-title">Расходы</div>
+                <div class="chart-title">{title}</div>
     """
     
     for cat in categories:
@@ -456,10 +467,10 @@ def _create_chart_section(categories: List[Dict], max_amount: Decimal) -> str:
     return html
 
 
-def _create_detailed_categories(categories: List[Dict]) -> str:
+def _create_detailed_categories(categories: List[Dict], kind: str) -> str:
     """Create detailed categories section."""
     if not categories:
-        return "<p>Нет расходов за этот период</p>"
+        return "<p>Нет операций за этот период</p>"
     
     html = ""
     
@@ -473,16 +484,18 @@ def _create_detailed_categories(categories: List[Dict]) -> str:
                     Сумма: {cat['amount']:,.0f} ₽
                 </div>
                 <div class="category-percentage">
-                    {cat['percentage']:.1f}% от общих расходов ({cat['count']} {_get_expense_word(cat['count'])})
+                    {cat['percentage']:.1f}% от общих {('расходов' if kind == 'expense' else 'доходов')}
+                    ({cat['count']} {_get_operation_word(cat['count'], kind)})
                 </div>
         """
         
-        # Add individual expenses if available
+        # Add individual items if available
         expenses = cat.get('expenses', [])
         if expenses:
-            html += """
+            list_title = "Детализация доходов:" if kind == "income" else "Детализация расходов:"
+            html += f"""
                 <div class="expenses-list">
-                    <div class="expenses-list-title">Детализация расходов:</div>
+                    <div class="expenses-list-title">{list_title}</div>
             """
             
             for expense in expenses:
@@ -512,8 +525,8 @@ def _create_detailed_categories(categories: List[Dict]) -> str:
     return html
 
 
-def _get_expense_word(count: int) -> str:
-    """Get correct Russian word form for 'expense' based on count.
+def _get_operation_word(count: int, kind: str) -> str:
+    """Get correct Russian word form for income/expense based on count.
     
     Args:
         count: Number of expenses
@@ -521,6 +534,12 @@ def _get_expense_word(count: int) -> str:
     Returns:
         Correct word form
     """
+    if kind == "income":
+        if count % 10 == 1 and count % 100 != 11:
+            return "поступление"
+        if count % 10 in [2, 3, 4] and count % 100 not in [12, 13, 14]:
+            return "поступления"
+        return "поступлений"
     if count % 10 == 1 and count % 100 != 11:
         return "списание"
     elif count % 10 in [2, 3, 4] and count % 100 not in [12, 13, 14]:
