@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
 
 from config.settings import settings
 
-from .models import Base, Category
+from .models import Base, Category, CategoryTypeEnum
 
 
 class DatabaseManager:
@@ -120,7 +120,7 @@ async def init_database() -> None:
 
 
 async def create_default_categories() -> None:
-    """Create default expense categories if they don't exist.
+    """Create default categories if they don't exist.
     
     Default categories:
     - Продукты 🛒
@@ -130,7 +130,7 @@ async def create_default_categories() -> None:
     - Одежда 👕
     - Прочее 📦
     """
-    default_categories = [
+    expense_categories = [
         {"name": "Продукты", "icon": "🛒"},
         {"name": "Транспорт", "icon": "🚗"},
         {"name": "Развлечения", "icon": "🎮"},
@@ -138,26 +138,40 @@ async def create_default_categories() -> None:
         {"name": "Одежда", "icon": "👕"},
         {"name": "Прочее", "icon": "📦"},
     ]
+    income_categories = [
+        {"name": "Зарплата", "icon": "💼"},
+        {"name": "Премия", "icon": "🏆"},
+        {"name": "Подарки", "icon": "🎁"},
+        {"name": "Кэшбэк", "icon": "💳"},
+        {"name": "Прочее", "icon": "📦"},
+    ]
     
     async for session in db_manager.get_session():
-        # Check if default categories already exist
         result = await session.execute(
             select(Category).where(Category.is_default == True)
         )
-        existing_categories = result.scalars().all()
+        existing = result.scalars().all()
+        existing_types = {cat.category_type for cat in existing}
         
-        # If we already have default categories, skip
-        if existing_categories:
-            return
+        if CategoryTypeEnum.EXPENSE not in existing_types:
+            for cat_data in expense_categories:
+                category = Category(
+                    name=cat_data["name"],
+                    icon=cat_data["icon"],
+                    is_default=True,
+                    category_type=CategoryTypeEnum.EXPENSE
+                )
+                session.add(category)
         
-        # Create default categories
-        for cat_data in default_categories:
-            category = Category(
-                name=cat_data["name"],
-                icon=cat_data["icon"],
-                is_default=True
-            )
-            session.add(category)
+        if CategoryTypeEnum.INCOME not in existing_types:
+            for cat_data in income_categories:
+                category = Category(
+                    name=cat_data["name"],
+                    icon=cat_data["icon"],
+                    is_default=True,
+                    category_type=CategoryTypeEnum.INCOME
+                )
+                session.add(category)
         
         await session.commit()
 

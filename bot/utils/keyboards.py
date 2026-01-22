@@ -100,7 +100,7 @@ def get_main_menu_keyboard(has_families: bool = False) -> InlineKeyboardMarkup:
         ]
     else:
         buttons = [
-            [("➕ Добавить расход", "add_expense")],
+            [("➕ Добавить расход", "add_expense"), ("➕ Добавить доход", "add_income")],
             [("📊 Статистика", "stats_start"), ("🏷️ Категории", "categories")],
             [("👨‍👩‍👧‍👦 Мои семьи", "my_families"), ("➕ Создать семью", "create_family")],
             [("🔗 Присоединиться", "join_family"), ("⚙️ Настройки", "settings")],
@@ -320,6 +320,20 @@ def get_add_another_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [("➕ Добавить еще расход", "add_expense")],
         [("📊 Мои расходы", "my_expenses")],
+        [("🏠 Главное меню", "start")]
+    ]
+    return build_inline_keyboard(buttons)
+
+
+def get_add_another_income_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard with 'Add another income' button.
+    
+    Returns:
+        InlineKeyboardMarkup with add another income button
+    """
+    buttons = [
+        [("➕ Добавить еще доход", "add_income")],
+        [("📊 Статистика", "stats_start")],
         [("🏠 Главное меню", "start")]
     ]
     return build_inline_keyboard(buttons)

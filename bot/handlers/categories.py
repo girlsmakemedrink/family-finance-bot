@@ -15,7 +15,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.database import crud, get_db
+from bot.database import CategoryTypeEnum, crud, get_db
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, safe_edit_message
 from bot.utils.keyboards import add_navigation_buttons, get_home_button
 
@@ -30,17 +30,20 @@ class ConversationState(IntEnum):
     """Conversation states for category management."""
     # Add category states
     ADD_SELECT_FAMILY = 0
-    ADD_ENTER_NAME = 1
-    ADD_CONFIRM = 2
+    ADD_SELECT_TYPE = 1
+    ADD_ENTER_NAME = 2
+    ADD_CONFIRM = 3
     # Edit category states
-    EDIT_SELECT_FAMILY = 3
-    EDIT_SELECT_CATEGORY = 4
-    EDIT_ENTER_NAME = 5
+    EDIT_SELECT_FAMILY = 4
+    EDIT_SELECT_TYPE = 5
+    EDIT_SELECT_CATEGORY = 6
+    EDIT_ENTER_NAME = 7
     # Delete category states
-    DELETE_SELECT_FAMILY = 6
-    DELETE_SELECT_CATEGORY = 7
-    DELETE_CONFIRM = 8
-    DELETE_SELECT_TARGET = 9
+    DELETE_SELECT_FAMILY = 8
+    DELETE_SELECT_TYPE = 9
+    DELETE_SELECT_CATEGORY = 10
+    DELETE_CONFIRM = 11
+    DELETE_SELECT_TARGET = 12
 
 
 class CallbackPattern:
@@ -59,6 +62,8 @@ class CallbackPattern:
     MOVETARGET_PREFIX = "movetarget_"
     DELETE_CONFIRM = "delete_confirm"
     DELETE_WITH_EXPENSES = "delete_with_expenses"
+    CAT_TYPE_EXPENSE = "cat_type_expense"
+    CAT_TYPE_INCOME = "cat_type_income"
     NAV_BACK = "nav_back"
 
 
@@ -111,6 +116,7 @@ class CategoryData:
     name: Optional[str] = None
     icon: Optional[str] = None
     target_category_id: Optional[int] = None
+    category_type: Optional[CategoryTypeEnum] = None
 
     @classmethod
     def from_context(cls, context: ContextTypes.DEFAULT_TYPE, prefix: str) -> 'CategoryData':
@@ -120,7 +126,8 @@ class CategoryData:
             category_id=context.user_data.get(f'{prefix}_id'),
             name=context.user_data.get(f'{prefix}_name'),
             icon=context.user_data.get(f'{prefix}_icon'),
-            target_category_id=context.user_data.get(f'{prefix}_target_cat_id')
+            target_category_id=context.user_data.get(f'{prefix}_target_cat_id'),
+            category_type=context.user_data.get(f'{prefix}_category_type')
         )
 
     def save_to_context(self, context: ContextTypes.DEFAULT_TYPE, prefix: str) -> None:
@@ -135,6 +142,8 @@ class CategoryData:
             context.user_data[f'{prefix}_icon'] = self.icon
         if self.target_category_id is not None:
             context.user_data[f'{prefix}_target_cat_id'] = self.target_category_id
+        if self.category_type is not None:
+            context.user_data[f'{prefix}_category_type'] = self.category_type
 
     def clear_from_context(self, context: ContextTypes.DEFAULT_TYPE, prefix: str) -> None:
         """Clear category data from context."""
@@ -143,6 +152,7 @@ class CategoryData:
         context.user_data.pop(f'{prefix}_name', None)
         context.user_data.pop(f'{prefix}_icon', None)
         context.user_data.pop(f'{prefix}_target_cat_id', None)
+        context.user_data.pop(f'{prefix}_category_type', None)
 
 
 # ============================================================================
@@ -260,51 +270,72 @@ class MessageBuilder:
         )
     
     @staticmethod
-    def build_categories_list_message(family_name: str, default_cats: List, custom_cats: List) -> str:
-        """Build message showing categories."""
+    def build_categories_list_message(
+        family_name: str,
+        expense_default: List,
+        expense_custom: List,
+        income_default: List,
+        income_custom: List
+    ) -> str:
+        """Build message showing categories by type."""
         message = f"{Emoji.TAG} <b>Категории семьи '{family_name}'</b>\n\n"
         
-        if default_cats:
-            message += f"<b>{Emoji.PIN} Стандартные категории:</b>\n"
-            for cat in default_cats:
+        message += "<b>💸 Расходы:</b>\n"
+        if expense_default:
+            message += f"{Emoji.PIN} Стандартные:\n"
+            for cat in expense_default:
                 message += f"• {cat.name}\n"
-            message += "\n"
+        if expense_custom:
+            message += f"{Emoji.STAR} Ваши:\n"
+            for cat in expense_custom:
+                message += f"• {cat.name}\n"
+        if not expense_default and not expense_custom:
+            message += "• Нет категорий расходов\n"
+        message += "\n"
         
-        if custom_cats:
-            message += f"<b>{Emoji.STAR} Ваши категории:</b>\n"
-            for cat in custom_cats:
+        message += "<b>💹 Доходы:</b>\n"
+        if income_default:
+            message += f"{Emoji.PIN} Стандартные:\n"
+            for cat in income_default:
                 message += f"• {cat.name}\n"
-            message += "\n"
-        else:
-            message += "У вас пока нет собственных категорий.\n\n"
+        if income_custom:
+            message += f"{Emoji.STAR} Ваши:\n"
+            for cat in income_custom:
+                message += f"• {cat.name}\n"
+        if not income_default and not income_custom:
+            message += "• Нет категорий доходов\n"
+        message += "\n"
         
         message += "Выберите действие:"
         return message
     
     @staticmethod
-    def build_add_category_name_prompt() -> str:
+    def build_add_category_name_prompt(category_type: CategoryTypeEnum) -> str:
         """Build prompt for category name input."""
+        type_label = "расходов" if category_type == CategoryTypeEnum.EXPENSE else "доходов"
         return (
-            f"{Emoji.PLUS} <b>Добавление новой категории</b>\n\n"
+            f"{Emoji.PLUS} <b>Добавление категории {type_label}</b>\n\n"
             "Введите название категории (например: 'Рестораны', 'Такси', 'Спорт'):"
         )
     
     @staticmethod
-    def build_add_category_confirmation(name: str) -> str:
+    def build_add_category_confirmation(name: str, category_type: CategoryTypeEnum) -> str:
         """Build confirmation message for category creation."""
+        type_label = "расходов" if category_type == CategoryTypeEnum.EXPENSE else "доходов"
         return (
             f"{Emoji.NOTE} <b>Подтверждение</b>\n\n"
-            f"Категория: <b>{name}</b>\n\n"
+            f"Категория {type_label}: <b>{name}</b>\n\n"
             "Создать категорию?"
         )
     
     @staticmethod
-    def build_category_created_message(name: str) -> str:
+    def build_category_created_message(name: str, category_type: CategoryTypeEnum) -> str:
         """Build success message after category creation."""
+        type_label = "расходов" if category_type == CategoryTypeEnum.EXPENSE else "доходов"
         return (
             f"{Emoji.SUCCESS} <b>Категория создана!</b>\n\n"
-            f"<b>{name}</b>\n\n"
-            "Теперь вы можете использовать эту категорию при добавлении расходов."
+            f"{type_label.capitalize()}: <b>{name}</b>\n\n"
+            "Теперь вы можете использовать эту категорию при добавлении операций."
         )
     
     @staticmethod
@@ -339,58 +370,89 @@ class MessageBuilder:
         )
     
     @staticmethod
-    def build_delete_with_expenses_prompt(name: str, count: int) -> str:
-        """Build message when category has expenses."""
+    def build_delete_with_expenses_prompt(name: str, expense_count: int, income_count: int) -> str:
+        """Build message when category has transactions."""
+        total_count = expense_count + income_count
         return (
             f"{Emoji.WARNING} <b>Внимание!</b>\n\n"
-            f"В категории '{name}' есть {count} расход(ов).\n\n"
+            f"В категории '{name}' есть {total_count} операци(й).\n"
+            f"Расходы: {expense_count}, доходы: {income_count}\n\n"
             "Что вы хотите сделать?"
         )
     
     @staticmethod
     def build_delete_confirm_no_expenses(name: str) -> str:
-        """Build confirmation message for deletion (no expenses)."""
+        """Build confirmation message for deletion (no transactions)."""
         return (
             f"{Emoji.DELETE} <b>Удаление категории</b>\n\n"
             f"Вы уверены, что хотите удалить категорию?\n\n"
             f"<b>{name}</b>\n\n"
-            "В этой категории нет расходов."
+            "В этой категории нет операций."
         )
     
     @staticmethod
     def build_delete_confirm_with_move(
         from_name: str,
         to_name: str,
-        count: int
+        expense_count: int,
+        income_count: int
     ) -> str:
-        """Build confirmation message for deletion with expense move."""
+        """Build confirmation message for deletion with transaction move."""
+        total_count = expense_count + income_count
         return (
             f"{Emoji.DELETE} <b>Подтверждение удаления</b>\n\n"
             f"Удалить: <b>{from_name}</b>\n"
-            f"Переместить {count} расход(ов) в: <b>{to_name}</b>\n\n"
+            f"Переместить {total_count} операци(й) в: <b>{to_name}</b>\n"
+            f"Расходы: {expense_count}, доходы: {income_count}\n\n"
             "Подтвердите удаление:"
         )
     
     @staticmethod
-    def build_category_deleted_message(name: str, moved_count: int = 0, deleted_count: int = 0, target_name: str = "") -> str:
+    def build_category_deleted_message(
+        name: str,
+        moved_expense_count: int = 0,
+        moved_income_count: int = 0,
+        deleted_expense_count: int = 0,
+        deleted_income_count: int = 0,
+        target_name: str = ""
+    ) -> str:
         """Build success message after category deletion."""
         message = f"{Emoji.SUCCESS} <b>Категория удалена!</b>\n\n{name}"
         
-        if moved_count > 0:
-            message += f"\n\n{moved_count} расход(ов) перемещено в {target_name}"
-        elif deleted_count > 0:
-            message += f"\n\n{deleted_count} расход(ов) также удалено"
+        moved_total = moved_expense_count + moved_income_count
+        deleted_total = deleted_expense_count + deleted_income_count
+        
+        if moved_total > 0:
+            message += (
+                f"\n\nПеремещено в {target_name}: {moved_total} операци(й)"
+                f"\nРасходы: {moved_expense_count}, доходы: {moved_income_count}"
+            )
+        elif deleted_total > 0:
+            message += (
+                f"\n\nУдалено: {deleted_total} операци(й)"
+                f"\nРасходы: {deleted_expense_count}, доходы: {deleted_income_count}"
+            )
         
         return message
     
     @staticmethod
-    def build_delete_confirm_with_expenses(name: str, count: int) -> str:
-        """Build confirmation message for deletion with expenses."""
+    def build_delete_confirm_with_expenses(name: str, expense_count: int, income_count: int) -> str:
+        """Build confirmation message for deletion with transactions."""
+        total_count = expense_count + income_count
         return (
             f"{Emoji.DELETE} <b>Подтверждение удаления</b>\n\n"
             f"Удалить категорию <b>{name}</b>\n"
-            f"вместе со всеми {count} расход(ами)?\n\n"
+            f"вместе со всеми {total_count} операци(й)?\n"
+            f"Расходы: {expense_count}, доходы: {income_count}\n\n"
             f"{Emoji.WARNING} <b>Это действие нельзя отменить!</b>"
+        )
+
+    @staticmethod
+    def build_category_type_prompt(action_label: str) -> str:
+        """Build prompt for category type selection."""
+        return (
+            f"{Emoji.TAG} <b>{action_label}</b>\n\n"
+            "Выберите тип категорий:"
         )
 
 
@@ -428,6 +490,16 @@ class KeyboardBuilder:
             keyboard.append([InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию", callback_data=f"{CallbackPattern.CAT_DELETE_PREFIX}{family_id}")])
         
         keyboard = add_navigation_buttons(keyboard, context, current_state="categories")
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_category_type_keyboard(context: ContextTypes.DEFAULT_TYPE, current_state: str) -> InlineKeyboardMarkup:
+        """Build keyboard for category type selection."""
+        keyboard = [
+            [InlineKeyboardButton("💸 Расходы", callback_data=CallbackPattern.CAT_TYPE_EXPENSE)],
+            [InlineKeyboardButton("💹 Доходы", callback_data=CallbackPattern.CAT_TYPE_INCOME)],
+        ]
+        keyboard = add_navigation_buttons(keyboard, context, current_state=current_state)
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
@@ -468,8 +540,8 @@ class KeyboardBuilder:
     def build_delete_with_expenses_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for delete action selection when category has expenses."""
         keyboard = [
-            [InlineKeyboardButton(f"📦 Переместить расходы в другую категорию", callback_data=CallbackPattern.MOVETARGET_PREFIX + "select")],
-            [InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию вместе с расходами", callback_data=CallbackPattern.DELETE_WITH_EXPENSES)]
+            [InlineKeyboardButton(f"📦 Переместить операции в другую категорию", callback_data=CallbackPattern.MOVETARGET_PREFIX + "select")],
+            [InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию вместе с операциями", callback_data=CallbackPattern.DELETE_WITH_EXPENSES)]
         ]
         keyboard = add_navigation_buttons(keyboard, context)
         return InlineKeyboardMarkup(keyboard)
@@ -514,8 +586,17 @@ async def show_family_categories_by_id(update: Update, context: ContextTypes.DEF
     """Show categories for a specific family by ID."""
     async def get_family_and_categories(session):
         family = await crud.get_family_by_id(session, family_id)
-        categories = await crud.get_family_categories(session, family_id)
-        return family, categories
+        expense_categories = await crud.get_family_categories(
+            session,
+            family_id,
+            category_type=CategoryTypeEnum.EXPENSE
+        )
+        income_categories = await crud.get_family_categories(
+            session,
+            family_id,
+            category_type=CategoryTypeEnum.INCOME
+        )
+        return family, expense_categories, income_categories
     
     result = await handle_db_operation(get_family_and_categories, f"Error showing categories for family {family_id}")
     
@@ -523,14 +604,24 @@ async def show_family_categories_by_id(update: Update, context: ContextTypes.DEF
         await send_or_edit_message(update, ErrorMessage.GENERAL_ERROR)
         return
     
-    family, categories = result
+    family, expense_categories, income_categories = result
     
     # Separate default and custom categories
-    default_cats = [c for c in categories if c.is_default]
-    custom_cats = [c for c in categories if not c.is_default]
+    expense_default = [c for c in expense_categories if c.is_default]
+    expense_custom = [c for c in expense_categories if not c.is_default]
+    income_default = [c for c in income_categories if c.is_default]
+    income_custom = [c for c in income_categories if not c.is_default]
     
-    message = MessageBuilder.build_categories_list_message(family.name, default_cats, custom_cats)
-    keyboard = KeyboardBuilder.build_category_management_keyboard(family_id, bool(custom_cats), bool(categories), context)
+    message = MessageBuilder.build_categories_list_message(
+        family.name,
+        expense_default,
+        expense_custom,
+        income_default,
+        income_custom
+    )
+    has_any = bool(expense_categories or income_categories)
+    has_custom = bool(expense_custom or income_custom)
+    keyboard = KeyboardBuilder.build_category_management_keyboard(family_id, has_custom, has_any, context)
     await send_or_edit_message(update, message, reply_markup=keyboard)
 
 
@@ -556,7 +647,29 @@ async def add_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     cat_data = CategoryData(family_id=family_id)
     cat_data.save_to_context(context, "add_cat")
     
-    message = MessageBuilder.build_add_category_name_prompt()
+    message = MessageBuilder.build_category_type_prompt("Добавление новой категории")
+    keyboard = KeyboardBuilder.build_category_type_keyboard(context, current_state="add_category")
+    await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
+    
+    return ConversationState.ADD_SELECT_TYPE
+
+
+async def add_category_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle category type selection for add flow."""
+    query = update.callback_query
+    await query.answer()
+    
+    selected_type = (
+        CategoryTypeEnum.EXPENSE
+        if query.data == CallbackPattern.CAT_TYPE_EXPENSE
+        else CategoryTypeEnum.INCOME
+    )
+    
+    cat_data = CategoryData.from_context(context, "add_cat")
+    cat_data.category_type = selected_type
+    cat_data.save_to_context(context, "add_cat")
+    
+    message = MessageBuilder.build_add_category_name_prompt(selected_type)
     keyboard = add_navigation_buttons([], context, current_state="add_category")
     await safe_edit_message(query, message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -576,7 +689,12 @@ async def add_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     # Check if name already exists
     async def check_name_exists(session):
-        return await crud.category_name_exists(session, name, cat_data.family_id)
+        return await crud.category_name_exists(
+            session,
+            name,
+            cat_data.family_id,
+            category_type=cat_data.category_type
+        )
     
     exists = await handle_db_operation(check_name_exists, "Error checking category name")
     
@@ -589,7 +707,7 @@ async def add_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     cat_data.icon = ""
     cat_data.save_to_context(context, "add_cat")
     
-    message = MessageBuilder.build_add_category_confirmation(name)
+    message = MessageBuilder.build_add_category_confirmation(name, cat_data.category_type)
     keyboard = KeyboardBuilder.build_confirmation_keyboard(context)
     await update.message.reply_text(message, reply_markup=keyboard, parse_mode="HTML")
     
@@ -608,7 +726,8 @@ async def add_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
             session,
             name=cat_data.name,
             icon=cat_data.icon,
-            family_id=cat_data.family_id
+            family_id=cat_data.family_id,
+            category_type=cat_data.category_type
         )
         await session.commit()
         return category
@@ -619,7 +738,7 @@ async def add_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
     if category is None:
         await safe_edit_message(query, ErrorMessage.CREATE_ERROR, reply_markup=keyboard)
     else:
-        message = MessageBuilder.build_category_created_message(cat_data.name)
+        message = MessageBuilder.build_category_created_message(cat_data.name, cat_data.category_type)
         await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Created category {category.id} for family {cat_data.family_id}")
     
@@ -653,9 +772,35 @@ async def edit_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     family_id = extract_id_from_callback(query.data, index=2)
     cat_data = CategoryData(family_id=family_id)
     cat_data.save_to_context(context, "edit_cat")
+
+    message = MessageBuilder.build_category_type_prompt("Редактирование категории")
+    keyboard = KeyboardBuilder.build_category_type_keyboard(context, current_state="edit_category")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    
+    return ConversationState.EDIT_SELECT_TYPE
+
+
+async def edit_category_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle category type selection for editing."""
+    query = update.callback_query
+    await query.answer()
+    
+    selected_type = (
+        CategoryTypeEnum.EXPENSE
+        if query.data == CallbackPattern.CAT_TYPE_EXPENSE
+        else CategoryTypeEnum.INCOME
+    )
+    
+    cat_data = CategoryData.from_context(context, "edit_cat")
+    cat_data.category_type = selected_type
+    cat_data.save_to_context(context, "edit_cat")
     
     async def get_all_categories(session):
-        return await crud.get_family_categories(session, family_id)
+        return await crud.get_family_categories(
+            session,
+            cat_data.family_id,
+            category_type=selected_type
+        )
     
     categories = await handle_db_operation(get_all_categories, "Error getting categories")
     
@@ -716,7 +861,11 @@ async def edit_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     async def check_and_update(session):
         exists = await crud.category_name_exists(
-            session, name, cat_data.family_id, exclude_category_id=cat_data.category_id
+            session,
+            name,
+            cat_data.family_id,
+            category_type=cat_data.category_type,
+            exclude_category_id=cat_data.category_id
         )
         
         if exists:
@@ -771,9 +920,35 @@ async def delete_category_start(update: Update, context: ContextTypes.DEFAULT_TY
     family_id = extract_id_from_callback(query.data, index=2)
     cat_data = CategoryData(family_id=family_id)
     cat_data.save_to_context(context, "delete_cat")
+
+    message = MessageBuilder.build_category_type_prompt("Удаление категории")
+    keyboard = KeyboardBuilder.build_category_type_keyboard(context, current_state="delete_category")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    
+    return ConversationState.DELETE_SELECT_TYPE
+
+
+async def delete_category_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle category type selection for deletion."""
+    query = update.callback_query
+    await query.answer()
+    
+    selected_type = (
+        CategoryTypeEnum.EXPENSE
+        if query.data == CallbackPattern.CAT_TYPE_EXPENSE
+        else CategoryTypeEnum.INCOME
+    )
+    
+    cat_data = CategoryData.from_context(context, "delete_cat")
+    cat_data.category_type = selected_type
+    cat_data.save_to_context(context, "delete_cat")
     
     async def get_all_categories(session):
-        return await crud.get_family_categories(session, family_id)
+        return await crud.get_family_categories(
+            session,
+            cat_data.family_id,
+            category_type=selected_type
+        )
     
     categories = await handle_db_operation(get_all_categories, "Error getting categories")
     
@@ -807,7 +982,8 @@ async def delete_category_select(update: Update, context: ContextTypes.DEFAULT_T
     async def get_category_and_expenses(session):
         category = await crud.get_category_by_id(session, category_id)
         expense_count = await crud.count_category_expenses(session, category_id)
-        return category, expense_count
+        income_count = await crud.count_category_incomes(session, category_id)
+        return category, expense_count, income_count
     
     result = await handle_db_operation(get_category_and_expenses, "Error checking category")
     
@@ -816,18 +992,23 @@ async def delete_category_select(update: Update, context: ContextTypes.DEFAULT_T
         await safe_edit_message(query, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
-    category, expense_count = result
+    category, expense_count, income_count = result
     
     if not category:
         await safe_edit_message(query, ErrorMessage.CATEGORY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
-    # Save expense count to context
+    # Save counts to context
     context.user_data['delete_cat_expense_count'] = expense_count
+    context.user_data['delete_cat_income_count'] = income_count
     
-    if expense_count > 0:
+    if expense_count + income_count > 0:
         # Show options: move or delete with expenses
-        message = MessageBuilder.build_delete_with_expenses_prompt(category.name, expense_count)
+        message = MessageBuilder.build_delete_with_expenses_prompt(
+            category.name,
+            expense_count,
+            income_count
+        )
         keyboard = KeyboardBuilder.build_delete_with_expenses_keyboard(context)
         await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
         return ConversationState.DELETE_SELECT_TARGET
@@ -847,7 +1028,11 @@ async def delete_category_choose_move(update: Update, context: ContextTypes.DEFA
     cat_data = CategoryData.from_context(context, "delete_cat")
     
     async def get_other_categories(session):
-        all_categories = await crud.get_family_categories(session, cat_data.family_id)
+        all_categories = await crud.get_family_categories(
+            session,
+            cat_data.family_id,
+            category_type=cat_data.category_type
+        )
         other_categories = [c for c in all_categories if c.id != cat_data.category_id]
         return other_categories
     
@@ -863,11 +1048,14 @@ async def delete_category_choose_move(update: Update, context: ContextTypes.DEFA
     
     category = await handle_db_operation(get_category, "Error getting category")
     expense_count = context.user_data.get('delete_cat_expense_count', 0)
+    income_count = context.user_data.get('delete_cat_income_count', 0)
+    total_count = expense_count + income_count
     
     message = (
-        f"{Emoji.WARNING} <b>Переместить расходы</b>\n\n"
-        f"В категории '{category.name}' есть {expense_count} расход(ов).\n\n"
-        "Выберите категорию, в которую переместить эти расходы:"
+        f"{Emoji.WARNING} <b>Переместить операции</b>\n\n"
+        f"В категории '{category.name}' есть {total_count} операци(й).\n"
+        f"Расходы: {expense_count}, доходы: {income_count}\n\n"
+        "Выберите категорию, в которую переместить эти операции:"
     )
     keyboard = KeyboardBuilder.build_category_list_keyboard(
         other_categories,
@@ -893,7 +1081,8 @@ async def delete_category_select_target(update: Update, context: ContextTypes.DE
         category = await crud.get_category_by_id(session, cat_data.category_id)
         target_category = await crud.get_category_by_id(session, target_category_id)
         expense_count = await crud.count_category_expenses(session, cat_data.category_id)
-        return category, target_category, expense_count
+        income_count = await crud.count_category_incomes(session, cat_data.category_id)
+        return category, target_category, expense_count, income_count
     
     result = await handle_db_operation(get_categories_and_count, "Error getting categories")
     
@@ -902,12 +1091,13 @@ async def delete_category_select_target(update: Update, context: ContextTypes.DE
         await safe_edit_message(query, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
-    category, target_category, expense_count = result
+    category, target_category, expense_count, income_count = result
     
     message = MessageBuilder.build_delete_confirm_with_move(
         category.name,
         target_category.name,
-        expense_count
+        expense_count,
+        income_count
     )
     keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
     await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
@@ -925,7 +1115,8 @@ async def delete_category_with_expenses(update: Update, context: ContextTypes.DE
     async def get_category_and_count(session):
         category = await crud.get_category_by_id(session, cat_data.category_id)
         expense_count = await crud.count_category_expenses(session, cat_data.category_id)
-        return category, expense_count
+        income_count = await crud.count_category_incomes(session, cat_data.category_id)
+        return category, expense_count, income_count
     
     result = await handle_db_operation(get_category_and_count, "Error getting category")
     
@@ -934,9 +1125,13 @@ async def delete_category_with_expenses(update: Update, context: ContextTypes.DE
         await safe_edit_message(query, ErrorMessage.GENERAL_ERROR, reply_markup=keyboard)
         return ConversationHandler.END
     
-    category, expense_count = result
+    category, expense_count, income_count = result
     
-    message = MessageBuilder.build_delete_confirm_with_expenses(category.name, expense_count)
+    message = MessageBuilder.build_delete_confirm_with_expenses(
+        category.name,
+        expense_count,
+        income_count
+    )
     keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
     await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
     
@@ -954,13 +1149,20 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
         category = await crud.get_category_by_id(session, cat_data.category_id)
         category_name = category.name
         
-        moved_count = 0
-        deleted_count = 0
+        moved_expense_count = 0
+        moved_income_count = 0
+        deleted_expense_count = 0
+        deleted_income_count = 0
         target_name = ""
         
         if cat_data.target_category_id:
             # Move expenses to another category
-            moved_count = await crud.move_expenses_to_category(
+            moved_expense_count = await crud.move_expenses_to_category(
+                session,
+                cat_data.category_id,
+                cat_data.target_category_id
+            )
+            moved_income_count = await crud.move_incomes_to_category(
                 session,
                 cat_data.category_id,
                 cat_data.target_category_id
@@ -969,12 +1171,20 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
             target_name = target_category.name
         else:
             # Delete all expenses in this category
-            deleted_count = await crud.delete_category_expenses(session, cat_data.category_id)
+            deleted_expense_count = await crud.delete_category_expenses(session, cat_data.category_id)
+            deleted_income_count = await crud.delete_category_incomes(session, cat_data.category_id)
         
         await crud.delete_category(session, cat_data.category_id)
         await session.commit()
         
-        return category_name, moved_count, deleted_count, target_name
+        return (
+            category_name,
+            moved_expense_count,
+            moved_income_count,
+            deleted_expense_count,
+            deleted_income_count,
+            target_name
+        )
     
     result = await handle_db_operation(delete_and_process, "Error deleting category")
     
@@ -982,15 +1192,32 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
     if result is None:
         await safe_edit_message(query, ErrorMessage.DELETE_ERROR, reply_markup=keyboard)
     else:
-        category_name, moved_count, deleted_count, target_name = result
+        (
+            category_name,
+            moved_expense_count,
+            moved_income_count,
+            deleted_expense_count,
+            deleted_income_count,
+            target_name
+        ) = result
         message = MessageBuilder.build_category_deleted_message(
-            category_name, moved_count, deleted_count, target_name
+            category_name,
+            moved_expense_count,
+            moved_income_count,
+            deleted_expense_count,
+            deleted_income_count,
+            target_name
         )
         await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
-        logger.info(f"Deleted category {cat_data.category_id}, moved {moved_count} expenses, deleted {deleted_count} expenses")
+        logger.info(
+            f"Deleted category {cat_data.category_id}, moved expenses={moved_expense_count}, "
+            f"moved incomes={moved_income_count}, deleted expenses={deleted_expense_count}, "
+            f"deleted incomes={deleted_income_count}"
+        )
     
     cat_data.clear_from_context(context, "delete_cat")
     context.user_data.pop('delete_cat_expense_count', None)
+    context.user_data.pop('delete_cat_income_count', None)
     return ConversationHandler.END
 
 
@@ -1024,6 +1251,10 @@ add_category_handler = ConversationHandler(
         CallbackQueryHandler(add_category_start, pattern=f"^{CallbackPattern.CAT_ADD_PREFIX}\\d+$")
     ],
     states={
+        ConversationState.ADD_SELECT_TYPE: [
+            CallbackQueryHandler(add_category_select_type, pattern=f"^{CallbackPattern.CAT_TYPE_EXPENSE}$"),
+            CallbackQueryHandler(add_category_select_type, pattern=f"^{CallbackPattern.CAT_TYPE_INCOME}$")
+        ],
         ConversationState.ADD_ENTER_NAME: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, add_category_name)
         ],
@@ -1036,7 +1267,7 @@ add_category_handler = ConversationHandler(
         CallbackQueryHandler(add_category_cancel, pattern=f"^{CallbackPattern.CAT_ADD_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     name="add_category_conversation",
     allow_reentry=True,
@@ -1050,6 +1281,10 @@ edit_category_handler = ConversationHandler(
         CallbackQueryHandler(edit_category_start, pattern=f"^{CallbackPattern.CAT_EDIT_PREFIX}\\d+$")
     ],
     states={
+        ConversationState.EDIT_SELECT_TYPE: [
+            CallbackQueryHandler(edit_category_select_type, pattern=f"^{CallbackPattern.CAT_TYPE_EXPENSE}$"),
+            CallbackQueryHandler(edit_category_select_type, pattern=f"^{CallbackPattern.CAT_TYPE_INCOME}$")
+        ],
         ConversationState.EDIT_SELECT_CATEGORY: [
             CallbackQueryHandler(edit_category_select, pattern=f"^{CallbackPattern.EDITCAT_PREFIX}\\d+$"),
             CallbackQueryHandler(edit_category_cancel, pattern=f"^{CallbackPattern.CAT_EDIT_CANCEL}$")
@@ -1062,7 +1297,7 @@ edit_category_handler = ConversationHandler(
         CallbackQueryHandler(edit_category_cancel, pattern=f"^{CallbackPattern.CAT_EDIT_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="edit_category_conversation",
@@ -1076,6 +1311,10 @@ delete_category_handler = ConversationHandler(
         CallbackQueryHandler(delete_category_start, pattern=f"^{CallbackPattern.CAT_DELETE_PREFIX}\\d+$")
     ],
     states={
+        ConversationState.DELETE_SELECT_TYPE: [
+            CallbackQueryHandler(delete_category_select_type, pattern=f"^{CallbackPattern.CAT_TYPE_EXPENSE}$"),
+            CallbackQueryHandler(delete_category_select_type, pattern=f"^{CallbackPattern.CAT_TYPE_INCOME}$")
+        ],
         ConversationState.DELETE_SELECT_CATEGORY: [
             CallbackQueryHandler(delete_category_select, pattern=f"^{CallbackPattern.DELCAT_PREFIX}\\d+$"),
             CallbackQueryHandler(delete_category_cancel, pattern=f"^{CallbackPattern.CAT_DELETE_CANCEL}$")
@@ -1095,7 +1334,7 @@ delete_category_handler = ConversationHandler(
         CallbackQueryHandler(delete_category_cancel, pattern=f"^{CallbackPattern.CAT_DELETE_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="delete_category_conversation",

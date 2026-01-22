@@ -17,7 +17,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.database import crud, get_db
+from bot.database import CategoryTypeEnum, crud, get_db
 # CSV export removed - imports commented out
 # from bot.utils.export import generate_csv, generate_csv_filename
 from bot.utils.formatters import (
@@ -760,7 +760,11 @@ async def show_category_selection(update: Update, context: ContextTypes.DEFAULT_
     expense_data = ExpenseData.from_context(context)
     
     async def get_categories(session):
-        return await crud.get_family_categories(session, expense_data.family_id)
+        return await crud.get_family_categories(
+            session,
+            expense_data.family_id,
+            category_type=CategoryTypeEnum.EXPENSE
+        )
     
     categories = await handle_db_operation(get_categories, "Error showing categories")
     
@@ -854,7 +858,12 @@ async def create_category_name_received(update: Update, context: ContextTypes.DE
     
     # Check if category name already exists
     async def check_name_exists(session):
-        return await crud.category_name_exists(session, name, expense_data.family_id)
+        return await crud.category_name_exists(
+            session,
+            name,
+            expense_data.family_id,
+            category_type=CategoryTypeEnum.EXPENSE
+        )
     
     exists = await handle_db_operation(check_name_exists, "Error checking category name")
     
@@ -928,7 +937,8 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
             session,
             name=category_name,
             icon=emoji,
-            family_id=expense_data.family_id
+            family_id=expense_data.family_id,
+            category_type=CategoryTypeEnum.EXPENSE
         )
         await session.commit()
         return category
@@ -1545,13 +1555,15 @@ async def pagination_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     start_date, end_date = crud.calculate_date_range(view_data.period)
     
     async def get_statistics(session):
-        return await crud.get_period_statistics(
+        return await crud.get_period_financial_statistics(
             session, user_id, start_date, end_date, is_family=False
         )
     
     stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
     
-    if not stats or stats.get('total', 0) == 0:
+    income_total = stats.get('income_total', 0) if stats else 0
+    expense_total = stats.get('expense_total', 0) if stats else 0
+    if not stats or (income_total == 0 and expense_total == 0):
         await query.edit_message_text(ErrorMessage.NO_EXPORT_DATA)
         return
     
@@ -1974,13 +1986,15 @@ async def family_pagination_handler(update: Update, context: ContextTypes.DEFAUL
     start_date, end_date = crud.calculate_date_range(view_data.period)
     
     async def get_statistics(session):
-        return await crud.get_period_statistics(
+        return await crud.get_period_financial_statistics(
             session, view_data.family_id, start_date, end_date, is_family=True
         )
     
     stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
     
-    if not stats or stats.get('total', 0) == 0:
+    income_total = stats.get('income_total', 0) if stats else 0
+    expense_total = stats.get('expense_total', 0) if stats else 0
+    if not stats or (income_total == 0 and expense_total == 0):
         await query.edit_message_text(ErrorMessage.NO_EXPORT_DATA)
         return
     
@@ -2122,7 +2136,7 @@ view_expenses_handler = ConversationHandler(
         CallbackQueryHandler(cancel_view_expenses, pattern=f"^{CallbackPattern.CANCEL_VIEW}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="view_expenses_conversation",
@@ -2149,7 +2163,7 @@ family_expenses_handler = ConversationHandler(
         CallbackQueryHandler(cancel_family_expenses, pattern=f"^{CallbackPattern.CANCEL_FAMILY}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="family_expenses_conversation",

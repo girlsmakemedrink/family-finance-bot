@@ -70,6 +70,7 @@ class FamilyFinanceBot:
             # my_export_gdocs_handler,  # Export moved to statistics section
             pagination_handler,
         )
+        from bot.handlers.incomes import add_income_handler
         from bot.handlers.family import (
             confirm_delete_family_handler as my_families_confirm_delete_handler,
             confirm_leave_family_handler as my_families_confirm_leave_handler,
@@ -140,6 +141,7 @@ class FamilyFinanceBot:
         self.application.add_handler(create_family_handler)
         self.application.add_handler(join_family_handler)
         self.application.add_handler(add_expense_handler)
+        self.application.add_handler(add_income_handler)
         self.application.add_handler(view_expenses_handler)
         self.application.add_handler(family_expenses_handler)
         self.application.add_handler(stats_handler)
