@@ -229,7 +229,6 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
         [("🌍 Часовой пояс", "settings_timezone")],
         [("📅 Формат даты", "settings_date_format")],
         [("📊 Месячная сводка", "settings_monthly_summary")],
-        [("🚨 Порог больших трат", "settings_threshold")],
         [("🔔 Уведомления о расходах", "settings_expense_notifications")],
         [("🏠 Главное меню", "start")]
     ]

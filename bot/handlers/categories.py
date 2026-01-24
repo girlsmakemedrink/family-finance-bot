@@ -1273,7 +1273,8 @@ add_category_handler = ConversationHandler(
     allow_reentry=True,
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler for category name input
 )
 
 edit_category_handler = ConversationHandler(
@@ -1303,7 +1304,8 @@ edit_category_handler = ConversationHandler(
     name="edit_category_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler for category name input
 )
 
 delete_category_handler = ConversationHandler(
@@ -1340,7 +1342,8 @@ delete_category_handler = ConversationHandler(
     name="delete_category_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=True  # True because all handlers are CallbackQueryHandler
 )
 
 categories_callback_handler = CallbackQueryHandler(

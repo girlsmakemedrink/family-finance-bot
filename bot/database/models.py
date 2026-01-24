@@ -71,7 +71,6 @@ class User(Base):
     monthly_summary_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     monthly_summary_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)  # Format: HH:MM (when to send on 1st day)
     last_monthly_summary_sent: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # Date when last monthly summary was sent
-    large_expense_threshold: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=12, scale=2), nullable=True)  # Threshold for large expense notifications
     expense_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # Receive notifications when family members add expenses
     
     # Relationships

@@ -980,5 +980,6 @@ quick_expense_handler = ConversationHandler(
     name="quick_expense_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )

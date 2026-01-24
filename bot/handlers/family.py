@@ -1026,7 +1026,8 @@ create_family_handler = ConversationHandler(
     name="create_family_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 # Join family conversation handler
@@ -1051,7 +1052,8 @@ join_family_handler = ConversationHandler(
     name="join_family_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 # My families command handler

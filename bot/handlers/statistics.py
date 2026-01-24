@@ -1053,5 +1053,6 @@ stats_handler = ConversationHandler(
     name="stats_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses CommandHandler in entry_points
 )

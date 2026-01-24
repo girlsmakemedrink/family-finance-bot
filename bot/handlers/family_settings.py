@@ -732,5 +732,6 @@ family_rename_handler = ConversationHandler(
     name="family_rename_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
