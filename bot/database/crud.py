@@ -2325,9 +2325,40 @@ async def get_period_income_statistics(
                 'percentage': 0.0
             })
         
+        # Calculate percentages and get individual incomes for each category
         for cat_data in by_category:
             if total_amount > 0:
                 cat_data['percentage'] = float((cat_data['amount'] / total_amount) * 100)
+            
+            # Get individual incomes for this category
+            income_detail_query = (
+                select(Income)
+                .where(Income.category_id == cat_data['category_id'])
+            )
+            
+            if is_family:
+                income_detail_query = income_detail_query.where(Income.family_id == entity_id)
+            else:
+                income_detail_query = income_detail_query.where(Income.user_id == entity_id)
+            
+            if start_date:
+                income_detail_query = income_detail_query.where(Income.date >= start_date)
+            if end_date:
+                income_detail_query = income_detail_query.where(Income.date <= end_date)
+            
+            income_detail_query = income_detail_query.order_by(Income.date.desc())
+            
+            income_result = await session.execute(income_detail_query)
+            incomes = income_result.scalars().all()
+            
+            cat_data['expenses'] = [
+                {
+                    'date': income.date,
+                    'amount': income.amount,
+                    'description': income.description or "—"
+                }
+                for income in incomes
+            ]
         
         statistics = {
             'total': total_amount,
