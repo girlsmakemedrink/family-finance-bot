@@ -5,11 +5,21 @@ for tracking family expenses and income.
 """
 
 import logging
+import warnings
 from typing import Optional
 
 from telegram.ext import Application
+from telegram.warnings import PTBUserWarning
 
 from config.settings import settings
+
+# Suppress PTBUserWarning about per_message=False with CallbackQueryHandler
+# This is expected behavior for ConversationHandlers that mix CallbackQueryHandler with MessageHandler/CommandHandler
+warnings.filterwarnings(
+    "ignore",
+    message=".*'CallbackQueryHandler' will not be tracked for every message.*",
+    category=PTBUserWarning
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +126,7 @@ class FamilyFinanceBot:
             settings_expense_notifications_handler,
             settings_handler,
             settings_monthly_summary_handler,
-            settings_threshold_handler,
             settings_timezone_handler,
-            threshold_disable_handler,
-            threshold_input_handler,
             timezone_selection_handler,
         )
         from bot.handlers.start import about_handler, start_callback_handler, start_handler
@@ -246,17 +253,7 @@ class FamilyFinanceBot:
         self.application.add_handler(date_format_selection_handler)
         self.application.add_handler(settings_monthly_summary_handler)
         self.application.add_handler(monthly_summary_time_handler)
-        self.application.add_handler(settings_threshold_handler)
-        self.application.add_handler(threshold_disable_handler)
         self.application.add_handler(settings_expense_notifications_handler)
-        
-        # Register threshold input handler (with lower priority)
-        from telegram.ext import MessageHandler, filters
-        threshold_msg_handler = MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            threshold_input_handler
-        )
-        self.application.add_handler(threshold_msg_handler, group=10)
         
         # Register family settings callback handlers
         self.application.add_handler(family_settings_callback_handler)

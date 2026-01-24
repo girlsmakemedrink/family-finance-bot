@@ -14,9 +14,6 @@ from bot.database import crud, get_db
 from bot.utils.constants import (
     CURRENCY_MAPPING,
     DATE_FORMAT_MAPPING,
-    MAX_AMOUNT,
-    MSG_INVALID_AMOUNT,
-    MSG_INVALID_FORMAT,
     TIME_MAPPING,
     TIMEZONE_MAPPING,
 )
@@ -27,7 +24,6 @@ from bot.utils.keyboards import (
     get_settings_keyboard,
     get_timezone_keyboard,
 )
-from bot.utils.message_utils import MessageHandler as MsgHandler, ValidationHelper
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +54,6 @@ def _create_settings_text(user) -> str:
     
     if user.monthly_summary_enabled and user.monthly_summary_time:
         text += f" (1-го числа в {user.monthly_summary_time})"
-    
-    text += "\n🚨 <b>Порог больших трат:</b> "
-    if user.large_expense_threshold:
-        text += format_amount(user.large_expense_threshold)
-    else:
-        text += "Не установлен"
     
     text += f"\n🔔 <b>Уведомления о расходах:</b> "
     text += "✅ Включены" if user.expense_notifications_enabled else "❌ Выключены"
@@ -474,159 +464,6 @@ async def monthly_summary_time_callback(
 
 
 # ============================================================================
-# Threshold Settings
-# ============================================================================
-
-async def settings_threshold_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle threshold setting callback.
-    
-    Args:
-        update: Telegram update object
-        context: Telegram context object
-    """
-    query = update.callback_query
-    if not query or not update.effective_user:
-        return
-    
-    await query.answer()
-    telegram_id = update.effective_user.id
-    
-    logger.info(f"User {telegram_id} opened threshold settings")
-    
-    async for session in get_db():
-        user = await crud.get_user_by_telegram_id(session, telegram_id)
-        
-        if not user:
-            await query.edit_message_text("❌ Ошибка: пользователь не найден.")
-            return
-        
-        from bot.utils.formatters import format_amount
-        
-        message = (
-            "🚨 <b>Порог больших трат</b>\n\n"
-            "Установите сумму, при превышении которой все участники семьи "
-            "будут получать уведомление о расходе.\n\n"
-        )
-        
-        if user.large_expense_threshold:
-            message += f"Текущий порог: <b>{format_amount(user.large_expense_threshold)}</b>\n\n"
-        else:
-            message += "Порог не установлен\n\n"
-        
-        message += (
-            "Введите новую сумму или выберите действие:\n"
-            "Например: <code>5000</code>"
-        )
-        
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Отключить уведомления", callback_data="threshold_disable")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="settings")]
-        ])
-        
-        await query.edit_message_text(
-            message,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-        
-        # Store state for message handler
-        context.user_data['awaiting_threshold'] = True
-
-
-async def threshold_input_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle threshold amount input.
-    
-    Args:
-        update: Telegram update object
-        context: Telegram context object
-    """
-    if not context.user_data.get('awaiting_threshold'):
-        return
-    
-    message = update.message
-    if not message or not message.text:
-        return
-    
-    telegram_id = update.effective_user.id
-    threshold_str = message.text.strip()
-    
-    # Validate amount
-    is_valid, error_msg, threshold = ValidationHelper.validate_amount(threshold_str, MAX_AMOUNT)
-    
-    if not is_valid:
-        await message.reply_text(error_msg)
-        return
-    
-    async for session in get_db():
-        user = await crud.get_user_by_telegram_id(session, telegram_id)
-        
-        if not user:
-            await message.reply_text("❌ Ошибка: пользователь не найден.")
-            return
-        
-        user.large_expense_threshold = threshold
-        await session.commit()
-        
-        from bot.utils.formatters import format_amount
-        from bot.utils.keyboards import get_settings_keyboard
-        
-        await message.reply_text(
-            f"✅ Порог больших трат установлен: <b>{format_amount(threshold)}</b>\n\n"
-            "Теперь вы и другие участники семьи будете получать уведомления "
-            "при расходах, превышающих эту сумму.",
-            parse_mode="HTML",
-            reply_markup=get_settings_keyboard()
-        )
-        
-        context.user_data['awaiting_threshold'] = False
-        logger.info(f"User {telegram_id} set threshold to {threshold}")
-
-
-async def threshold_disable_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle threshold disable callback.
-    
-    Args:
-        update: Telegram update object
-        context: Telegram context object
-    """
-    query = update.callback_query
-    if not query or not update.effective_user:
-        return
-    
-    await query.answer()
-    telegram_id = update.effective_user.id
-    
-    async for session in get_db():
-        user = await crud.get_user_by_telegram_id(session, telegram_id)
-        
-        if not user:
-            await query.edit_message_text("❌ Ошибка: пользователь не найден.")
-            return
-        
-        user.large_expense_threshold = None
-        await session.commit()
-        
-        from bot.utils.keyboards import get_settings_keyboard
-        
-        await query.edit_message_text(
-            "✅ Уведомления о больших тратах отключены",
-            reply_markup=get_settings_keyboard()
-        )
-        
-        context.user_data['awaiting_threshold'] = False
-        logger.info(f"User {telegram_id} disabled threshold notifications")
-
-
-# ============================================================================
 # Expense Notifications Settings
 # ============================================================================
 
@@ -718,16 +555,6 @@ settings_monthly_summary_handler = CallbackQueryHandler(
 monthly_summary_time_handler = CallbackQueryHandler(
     monthly_summary_time_callback,
     pattern="^summary_(time_|disable)"
-)
-
-settings_threshold_handler = CallbackQueryHandler(
-    settings_threshold_callback,
-    pattern="^settings_threshold$"
-)
-
-threshold_disable_handler = CallbackQueryHandler(
-    threshold_disable_callback,
-    pattern="^threshold_disable$"
 )
 
 settings_expense_notifications_handler = CallbackQueryHandler(

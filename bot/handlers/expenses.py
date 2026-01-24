@@ -28,7 +28,7 @@ from bot.utils.formatters import (
     format_family_expense,
     format_family_summary,
 )
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_large_expense, notify_expense_to_family
+from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_expense_to_family
 from bot.utils.keyboards import add_navigation_buttons, get_add_another_keyboard, get_home_button
 
 logger = logging.getLogger(__name__)
@@ -1044,9 +1044,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             category = await crud.get_category_by_id(session, expense_data.category_id)
             family_members = await crud.get_family_members(session, expense_data.family_id)
             
-            # Send notifications about large expenses
-            await notify_large_expense(session, context.bot, expense, family_members)
-            
             # Send notifications to family members about the new expense
             await notify_expense_to_family(session, context.bot, expense, family_members)
             
@@ -1107,9 +1104,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         user = await crud.get_user_by_id(session, user_id)
         category = await crud.get_category_by_id(session, expense_data.category_id)
         family_members = await crud.get_family_members(session, expense_data.family_id)
-        
-        # Send notifications about large expenses
-        await notify_large_expense(session, context.bot, expense, family_members)
         
         # Send notifications to family members about the new expense
         await notify_expense_to_family(session, context.bot, expense, family_members)
@@ -1189,9 +1183,6 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
         user = await crud.get_user_by_id(session, user_id)
         category = await crud.get_category_by_id(session, expense_data.category_id)
         family_members = await crud.get_family_members(session, expense_data.family_id)
-        
-        # Send notifications about large expenses
-        await notify_large_expense(session, context.bot, expense, family_members)
         
         # Send notifications to family members about the new expense
         await notify_expense_to_family(session, context.bot, expense, family_members)
@@ -2115,7 +2106,8 @@ add_expense_handler = ConversationHandler(
     name="add_expense_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 view_expenses_handler = ConversationHandler(
@@ -2142,7 +2134,8 @@ view_expenses_handler = ConversationHandler(
     name="view_expenses_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses CommandHandler in entry_points and fallbacks
 )
 
 family_expenses_handler = ConversationHandler(
@@ -2169,5 +2162,6 @@ family_expenses_handler = ConversationHandler(
     name="family_expenses_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses CommandHandler in entry_points and fallbacks
 )

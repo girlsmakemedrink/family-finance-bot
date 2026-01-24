@@ -613,6 +613,10 @@ add_income_handler = ConversationHandler(
         CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|family_expenses|my_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     name="add_income_conversation",
-    persistent=False
+    persistent=False,
+    allow_reentry=True,
+    per_chat=True,
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
