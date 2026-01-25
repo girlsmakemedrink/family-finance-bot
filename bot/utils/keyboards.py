@@ -318,7 +318,6 @@ def get_add_another_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить еще расход", "add_expense")],
-        [("📊 Мои расходы", "my_expenses")],
         [("🏠 Главное меню", "start")]
     ]
     return build_inline_keyboard(buttons)
@@ -332,7 +331,6 @@ def get_add_another_income_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить еще доход", "add_income")],
-        [("📊 Статистика", "stats_start")],
         [("🏠 Главное меню", "start")]
     ]
     return build_inline_keyboard(buttons)
