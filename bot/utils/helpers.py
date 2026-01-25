@@ -393,3 +393,81 @@ async def notify_expense_to_family(
     except Exception as e:
         logger.error(f"Error in notify_expense_to_family: {e}")
 
+
+async def notify_income_to_family(
+    session,
+    bot,
+    income,
+    family_members
+) -> None:
+    """Send notifications about new income to family members.
+    
+    Notifies all family members (except the one who added the income)
+    that a new income has been recorded. Respects user notification settings.
+    
+    Args:
+        session: Database session
+        bot: Bot instance
+        income: Income object with loaded user and category relationships
+        family_members: List of tuples (User, FamilyMember) from get_family_members
+    """
+    from bot.utils.formatters import format_amount
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Get user who created the income
+        income_user = income.user
+        
+        # Prepare notification message
+        message = (
+            f"💰 <b>Новый доход в семье</b>\n\n"
+            f"👤 <b>Добавил:</b> {income_user.name}\n"
+            f"<b>Категория:</b> {income.category.name}\n"
+            f"💵 <b>Сумма:</b> {format_amount(income.amount)}\n"
+        )
+        
+        if income.description:
+            message += f"📝 <b>Описание:</b> {income.description}\n"
+        
+        # Import keyboard for navigation buttons
+        from bot.utils.keyboards import get_income_notification_keyboard
+        reply_markup = get_income_notification_keyboard()
+        
+        # Send notification to all family members except the one who created income
+        # family_members is a list of tuples (User, FamilyMember)
+        for user, family_member in family_members:
+            # Skip the user who created the income
+            if user.id == income.user_id:
+                continue
+            
+            # Check if user has notifications enabled
+            if not user.expense_notifications_enabled:
+                logger.debug(
+                    f"User {user.id} has operation notifications disabled, skipping"
+                )
+                continue
+            
+            try:
+                await bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=message,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
+                logger.info(
+                    f"Sent income notification to user {user.id} "
+                    f"for income {income.id}"
+                )
+            except Exception as e:
+                # Log error but continue sending to other members
+                # Common errors: user blocked bot, chat not found
+                logger.warning(
+                    f"Failed to send income notification "
+                    f"to user {user.id}: {e}"
+                )
+        
+    except Exception as e:
+        logger.error(f"Error in notify_income_to_family: {e}")
+

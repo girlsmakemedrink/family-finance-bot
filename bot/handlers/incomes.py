@@ -19,7 +19,7 @@ from telegram.ext import (
 
 from bot.database import CategoryTypeEnum, crud, get_db
 from bot.utils.formatters import format_amount
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_income_to_family
 from bot.utils.keyboards import add_navigation_buttons, get_home_button, get_add_another_income_keyboard
 
 logger = logging.getLogger(__name__)
@@ -530,7 +530,7 @@ async def _save_income(update: Update, context: ContextTypes.DEFAULT_TYPE, incom
             await update.message.reply_text(ErrorMessage.MISSING_DATA)
         return ConversationHandler.END
     
-    async def create_income_record(session):
+    async def create_income_and_notify(session):
         income = await crud.create_income(
             session,
             user_id=user_id,
@@ -543,9 +543,11 @@ async def _save_income(update: Update, context: ContextTypes.DEFAULT_TYPE, incom
         
         user = await crud.get_user_by_id(session, user_id)
         category = await crud.get_category_by_id(session, income_data.category_id)
-        return income, user, category
+        family_members = await crud.get_family_members(session, income_data.family_id)
+        
+        return income, user, category, family_members
     
-    result = await handle_db_operation(create_income_record, "Error creating income")
+    result = await handle_db_operation(create_income_and_notify, "Error creating income")
     
     if result is None:
         error_text = f"{Emoji.ERROR} Произошла ошибка при сохранении дохода. Пожалуйста, попробуйте позже."
@@ -555,7 +557,10 @@ async def _save_income(update: Update, context: ContextTypes.DEFAULT_TYPE, incom
             await update.message.reply_text(error_text)
         return ConversationHandler.END
     
-    income, user, category = result
+    income, user, category, family_members = result
+    
+    # Send notifications to family members about the new income
+    await notify_income_to_family(None, context.bot, income, family_members)
     income_data.category_name = category.name
     
     message = MessageBuilder.build_income_created_message(income_data, income, user)
