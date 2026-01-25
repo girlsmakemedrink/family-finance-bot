@@ -750,6 +750,8 @@ async def stats_select_year(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     stats_data = StatsData.from_context(context)
     stats_data.year = year
     stats_data.month = None
+    # Explicitly clear month from context (for yearly reports)
+    context.user_data.pop('stats_month', None)
     
     # Calculate date range
     start_date, end_date = calculate_date_range(year)
