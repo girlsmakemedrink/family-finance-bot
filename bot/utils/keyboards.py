@@ -229,7 +229,7 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
         [("🌍 Часовой пояс", "settings_timezone")],
         [("📅 Формат даты", "settings_date_format")],
         [("📊 Месячная сводка", "settings_monthly_summary")],
-        [("🔔 Уведомления о расходах", "settings_expense_notifications")],
+        [("🔔 Уведомления об операциях", "settings_expense_notifications")],
         [("🏠 Главное меню", "start")]
     ]
     return build_inline_keyboard(buttons)
@@ -412,6 +412,22 @@ def get_expense_notification_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить расход", "add_expense")],
+        [("🏠 Главное меню", "start")]
+    ]
+    return build_inline_keyboard(buttons)
+
+
+def get_income_notification_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard for income notifications from family members.
+    
+    Provides quick navigation options when receiving notification
+    about a new income from another family member.
+    
+    Returns:
+        InlineKeyboardMarkup with navigation buttons
+    """
+    buttons = [
+        [("➕ Добавить доход", "add_income")],
         [("🏠 Главное меню", "start")]
     ]
     return build_inline_keyboard(buttons)

@@ -55,7 +55,7 @@ def _create_settings_text(user) -> str:
     if user.monthly_summary_enabled and user.monthly_summary_time:
         text += f" (1-го числа в {user.monthly_summary_time})"
     
-    text += f"\n🔔 <b>Уведомления о расходах:</b> "
+    text += f"\n🔔 <b>Уведомления об операциях:</b> "
     text += "✅ Включены" if user.expense_notifications_enabled else "❌ Выключены"
     
     text += "\n\nВыберите параметр для изменения:"
@@ -496,11 +496,11 @@ async def settings_expense_notifications_callback(
         await session.commit()
         
         if new_value:
-            await query.answer("✅ Уведомления о расходах включены")
-            logger.info(f"User {telegram_id} enabled expense notifications")
+            await query.answer("✅ Уведомления об операциях включены")
+            logger.info(f"User {telegram_id} enabled operation notifications")
         else:
-            await query.answer("❌ Уведомления о расходах отключены")
-            logger.info(f"User {telegram_id} disabled expense notifications")
+            await query.answer("❌ Уведомления об операциях отключены")
+            logger.info(f"User {telegram_id} disabled operation notifications")
         
         # Refresh settings menu
         await settings_command(update, context)
