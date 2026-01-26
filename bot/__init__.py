@@ -305,10 +305,18 @@ class FamilyFinanceBot:
         """Stop the bot gracefully."""
         if self.application:
             logger.info("Stopping bot...")
-            await self.application.updater.stop()
-            await self.application.stop()
-            await self.application.shutdown()
-            logger.info("Bot stopped successfully")
+            try:
+                # Only stop updater if it's running
+                if self.application.updater and self.application.updater.running:
+                    await self.application.updater.stop()
+                # Only stop application if it's running
+                if self.application.running:
+                    await self.application.stop()
+                # Always try to shutdown
+                await self.application.shutdown()
+                logger.info("Bot stopped successfully")
+            except Exception as e:
+                logger.warning(f"Error during bot shutdown: {e}")
 
 
 __version__ = "0.1.0"

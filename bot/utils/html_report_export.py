@@ -1,6 +1,7 @@
 """HTML report generation for financial statistics."""
 
 import logging
+import math
 from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
@@ -352,8 +353,32 @@ def _get_css_styles() -> str:
             filter: brightness(1.25);
         }}
 
-        .pie-separator {{
-            opacity: 0.30;
+        .pie-separator,
+        .pie-separator-line,
+        .pie-border {{
+            opacity: 1;
+            pointer-events: none;
+        }}
+
+        .pie-border {{
+            stroke-linecap: round;
+        }}
+
+        .pie-center-text,
+        .pie-center-percent {{
+            pointer-events: none;
+            transition: opacity 0.3s ease, fill 0.3s ease;
+        }}
+
+        .pie-center-text {{
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }}
+
+        .pie-center-percent {{
+            font-size: 16px;
+            font-weight: 800;
         }}
 
         .pie-legend {{
@@ -411,6 +436,20 @@ def _get_css_styles() -> str:
             background: rgba(255, 255, 255, 0.06);
             border-color: {COLOR_BORDER};
             transform: translateX(2px);
+        }}
+
+        .legend-item-link {{
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }}
+
+        .legend-item-link:hover {{
+            text-decoration: none;
+        }}
+
+        .legend-item {{
+            cursor: pointer;
         }}
         
         .expenses-table {{
@@ -719,53 +758,104 @@ def _get_report_title(period_name: str) -> str:
 
 
 def _get_pie_interaction_script() -> str:
-    """Inline JS: bidirectional hover between pie segments and legend items."""
+    """Interactive pie with center label display and click navigation."""
     return r"""
 (() => {
   const containers = document.querySelectorAll('.pie-chart-container');
+
   containers.forEach((container) => {
+    const svg = container.querySelector('.pie-chart');
     const slices = Array.from(container.querySelectorAll('.pie-segment[data-idx]'));
     const items = Array.from(container.querySelectorAll('.legend-item[data-idx]'));
-    const labels = Array.from(container.querySelectorAll('.legend-item[data-idx] .legend-label'));
+    const centerText = svg ? svg.querySelector('.pie-center-text') : null;
+    const centerPercent = svg ? svg.querySelector('.pie-center-percent') : null;
 
     const clear = () => {
       slices.forEach((s) => s.classList.remove('is-highlighted', 'is-dimmed'));
       items.forEach((i) => i.classList.remove('is-highlighted', 'is-dimmed'));
+      if (centerText) centerText.setAttribute('opacity', '0');
+      if (centerPercent) centerPercent.setAttribute('opacity', '0');
     };
 
-    const highlight = (idx) => {
+    const highlight = (idx, name, percent, color) => {
+      // Dim all slices and items
       slices.forEach((s) => s.classList.add('is-dimmed'));
       items.forEach((i) => i.classList.add('is-dimmed'));
 
+      // Highlight target slice
       const targetSlice = container.querySelector(`.pie-segment[data-idx="${idx}"]`);
       if (targetSlice) {
         targetSlice.classList.remove('is-dimmed');
         targetSlice.classList.add('is-highlighted');
       }
 
+      // Highlight legend item
       const targetItem = container.querySelector(`.legend-item[data-idx="${idx}"]`);
       if (targetItem) {
         targetItem.classList.remove('is-dimmed');
         targetItem.classList.add('is-highlighted');
       }
+
+      // Show center text with category color (truncate long names)
+      if (centerText && centerPercent && name && percent) {
+        const maxLen = 10;
+        const displayName = name.length > maxLen ? name.substring(0, maxLen - 1) + '…' : name;
+        centerText.textContent = displayName;
+        centerText.setAttribute('fill', color || '#e0e0e0');
+        centerText.setAttribute('opacity', '1');
+
+        centerPercent.textContent = percent + '%';
+        centerPercent.setAttribute('fill', color || '#e0e0e0');
+        centerPercent.setAttribute('opacity', '1');
+      }
     };
 
-    // Legend item hover
-    labels.forEach((label) => {
-      const item = label.closest('.legend-item[data-idx]');
-      if (!item) return;
+    // Navigate to category detail section
+    const navigateToCategory = (anchorId) => {
+      if (!anchorId) return;
+      const target = document.getElementById(anchorId);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Brief highlight animation
+        const originalBorderColor = target.style.borderColor;
+        target.style.transition = 'border-color 0.3s ease, box-shadow 0.3s ease';
+        target.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+        target.style.boxShadow = '0 0 20px rgba(255, 255, 255, 0.2)';
+        setTimeout(() => {
+          target.style.borderColor = originalBorderColor || '';
+          target.style.boxShadow = '';
+        }, 1500);
+      }
+    };
+
+    // Legend item hover and click
+    items.forEach((item) => {
       const idx = item.getAttribute('data-idx');
+      const name = item.getAttribute('data-name');
+      const percent = item.getAttribute('data-percent');
+      const color = item.getAttribute('data-color');
+
       if (idx == null) return;
-      label.addEventListener('mouseenter', () => highlight(idx));
-      label.addEventListener('mouseleave', clear);
+
+      item.addEventListener('mouseenter', () => highlight(idx, name, percent, color));
+      item.addEventListener('mouseleave', clear);
     });
 
-    // Pie segment hover (NEW)
+    // Pie segment hover and click
     slices.forEach((slice) => {
       const idx = slice.getAttribute('data-idx');
+      const name = slice.getAttribute('data-name');
+      const percent = slice.getAttribute('data-percent');
+      const color = slice.getAttribute('data-color');
+      const anchorId = slice.getAttribute('data-anchor');
+
       if (idx == null) return;
-      slice.addEventListener('mouseenter', () => highlight(idx));
+
+      slice.addEventListener('mouseenter', () => highlight(idx, name, percent, color));
       slice.addEventListener('mouseleave', clear);
+
+      // Click to navigate to category details
+      slice.addEventListener('click', () => navigateToCategory(anchorId));
     });
 
     container.addEventListener('mouseleave', clear);
@@ -881,6 +971,27 @@ def _get_pie_palette(kind: str, n: int) -> List[str]:
     return _spread_colors(colors[:n])
 
 
+def _make_safe_anchor_id(category_name: str, kind: str) -> str:
+    """Create a safe anchor ID from category name for navigation."""
+    # Transliterate Cyrillic to Latin for safe IDs
+    translit_map = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+        'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+        'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+        'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'E',
+        'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+        'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+        'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch',
+        'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya',
+    }
+    transliterated = ''.join(translit_map.get(c, c) for c in category_name)
+    safe_id = transliterated.replace(' ', '-').replace('/', '-')
+    safe_id = ''.join(c for c in safe_id if c.isalnum() or c == '-')
+    return f"{kind}-{safe_id}"
+
+
 def _create_chart_section(categories: List[Dict], max_amount: Decimal, title: str) -> str:
     """Create chart section with SVG pie visualization + legend."""
     if not categories:
@@ -939,12 +1050,17 @@ def _create_chart_section(categories: List[Dict], max_amount: Decimal, title: st
 
     for idx, cat in enumerate(categories):
         amount = cat["amount"]
+        category_name = cat['category_name']
         pct = norm_pcts[idx] if idx < len(norm_pcts) else 0.0
 
         color = colors[idx] if idx < len(colors) else (COLOR_INCOME_BAR_FROM if kind == "income" else COLOR_EXPENSE_BAR_FROM)
         rotation = -90.0 + cumulative_pct * 3.6
+        anchor_id = _make_safe_anchor_id(category_name, kind)
+        
         # Geometry note: keep the whole ring inside viewBox 200x200.
         # Condition: r + stroke_width/2 <= 100.
+        
+        # Main colored segment
         segments_html += f"""
             <circle class="pie-segment"
                     r="{ring_r:.0f}" cx="0" cy="0"
@@ -954,33 +1070,100 @@ def _create_chart_section(categories: List[Dict], max_amount: Decimal, title: st
                     pathLength="100"
                     stroke-dasharray="{pct:.2f} 100"
                     transform="rotate({rotation:.2f})"
-                    data-idx="{idx}" />
+                    data-idx="{idx}"
+                    data-name="{category_name}"
+                    data-percent="{pct:.1f}"
+                    data-color="{color}"
+                    data-anchor="{anchor_id}" />
         """
+        
+        # White separator line at start of segment (radial line from inner to outer edge)
+        inner_r = ring_r - ring_stroke / 2.0
+        outer_r = ring_r + ring_stroke / 2.0
+        # Calculate line endpoint using rotation angle (convert to radians)
+        angle_rad = math.radians(rotation)
+        x1 = inner_r * math.cos(angle_rad)
+        y1 = inner_r * math.sin(angle_rad)
+        x2 = outer_r * math.cos(angle_rad)
+        y2 = outer_r * math.sin(angle_rad)
+        
+        segments_html += f"""
+            <line class="pie-separator-line"
+                  x1="{x1:.2f}" y1="{y1:.2f}"
+                  x2="{x2:.2f}" y2="{y2:.2f}"
+                  stroke="#ffffff"
+                  stroke-width="1.25" />
+        """
+        
+        # Legend item wrapped in link for navigation
         legend_html += f"""
-            <div class="legend-item" data-idx="{idx}">
-                <span class="legend-color" style="background: {color}"></span>
-                <span class="legend-label">{cat['category_name']} ({amount:,.0f} ₽, {pct:.1f}%)</span>
-            </div>
+            <a href="#{anchor_id}" class="legend-item-link">
+                <div class="legend-item"
+                     data-idx="{idx}"
+                     data-name="{category_name}"
+                     data-percent="{pct:.1f}"
+                     data-color="{color}"
+                     data-anchor="{anchor_id}">
+                    <span class="legend-color" style="background: {color}"></span>
+                    <span class="legend-label">{category_name} ({amount:,.0f} ₽, {pct:.1f}%)</span>
+                </div>
+            </a>
         """
         cumulative_pct += pct
 
-    # One continuous inner outline (instead of per-segment separators) — matches the black hole edge
-    inner_outline_html = f'''
-        <circle class="pie-separator"
-                r="{hole_outline_r:.0f}" cx="0" cy="0"
+    # Center text display for hover info (with text truncation via CSS)
+    # Max width for text is roughly inner_r * 2 - some padding
+    max_text_width = int((ring_r - ring_stroke / 2) * 1.6)
+    center_text_html = f"""
+        <!-- Center text display -->
+        <text class="pie-center-text"
+              x="0" y="-5"
+              text-anchor="middle"
+              font-size="12"
+              font-weight="700"
+              fill="{COLOR_TEXT}"
+              opacity="0">
+        </text>
+        <text class="pie-center-percent"
+              x="0" y="12"
+              text-anchor="middle"
+              font-size="16"
+              font-weight="800"
+              fill="{COLOR_TEXT}"
+              opacity="0">
+        </text>
+    """
+
+    # Outer border of the donut
+    outer_border_html = f"""
+        <!-- Outer border -->
+        <circle r="{ring_r + ring_stroke / 2:.0f}" cx="0" cy="0"
                 fill="transparent"
-                stroke="#fff"
-                stroke-width="1" />
-    '''
+                stroke="#ffffff"
+                stroke-width="1.25"
+                class="pie-border" />
+    """
+
+    # Inner border (around the hole)
+    inner_border_html = f"""
+        <!-- Inner border -->
+        <circle r="{hole_outline_r:.0f}" cx="0" cy="0"
+                fill="transparent"
+                stroke="#ffffff"
+                stroke-width="1.25"
+                class="pie-border" />
+    """
 
     return f"""
         <div class="chart {kind_class}">
             <div class="chart-title">{title}</div>
-            <div class="pie-chart-container">
+            <div class="pie-chart-container" data-kind="{kind}">
                 <svg class="pie-chart" viewBox="0 0 200 200" width="200" height="200" aria-hidden="true">
                     <g transform="translate(100 100)">
                         {segments_html}
-                        {inner_outline_html}
+                        {outer_border_html}
+                        {inner_border_html}
+                        {center_text_html}
                     </g>
                 </svg>
                 <div class="pie-legend">
@@ -1000,8 +1183,11 @@ def _create_detailed_categories(categories: List[Dict], kind: str) -> str:
     html = f'<div class="category-grid {grid_kind}">'
     
     for cat in categories:
+        # Create anchor ID for navigation from pie chart
+        anchor_id = _make_safe_anchor_id(cat['category_name'], kind)
+        
         html += f"""
-            <div class="category-detail">
+            <div class="category-detail" id="{anchor_id}">
                 <div class="category-header">
                     {cat['category_name']}
                 </div>
