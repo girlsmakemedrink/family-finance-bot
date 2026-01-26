@@ -425,7 +425,10 @@ async def join_family_code_received(
             success_message = _create_join_success_message(family)
             
             keyboard = [
-                [InlineKeyboardButton("💰 Добавить расход", callback_data="add_expense")],
+                [
+                    InlineKeyboardButton("💰 Добавить расход", callback_data="add_expense"),
+                    InlineKeyboardButton("💹 Добавить доход", callback_data="add_income")
+                ],
                 [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
             ]
@@ -1017,13 +1020,14 @@ create_family_handler = ConversationHandler(
         CallbackQueryHandler(cancel_conversation, pattern="^cancel_create_family$"),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="create_family_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 # Join family conversation handler
@@ -1042,13 +1046,14 @@ join_family_handler = ConversationHandler(
         CallbackQueryHandler(cancel_conversation, pattern="^cancel_join_family$"),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|create_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="join_family_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 # My families command handler

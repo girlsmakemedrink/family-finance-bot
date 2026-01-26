@@ -9,8 +9,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 from bot.database import crud, get_db
-from bot.utils.formatters import format_amount, format_date
-from bot.utils.charts import create_text_bar
+from bot.utils.formatters import format_amount
 
 logger = logging.getLogger(__name__)
 
@@ -52,79 +51,72 @@ async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str =
 
 
 async def send_monthly_summary(bot: Bot, user, summary_data: dict, month_name: str, family_name: str = None) -> None:
-    """Send monthly summary to user with HTML report.
+    """Send monthly summary to user as HTML report file.
     
     Args:
         bot: Telegram bot instance
         user: User object
-        summary_data: Dictionary with summary statistics (from get_user_expenses_detailed_monthly_report)
+        summary_data: Dictionary with financial statistics (from get_period_financial_statistics)
         month_name: Name of the month (e.g., "Октябрь 2025")
         family_name: Name of the family (optional)
     """
     try:
-        total = summary_data.get('total', Decimal('0'))
-        by_category = summary_data.get('by_category', [])
+        income_total = summary_data.get('income_total', Decimal('0'))
+        expense_total = summary_data.get('expense_total', Decimal('0'))
+        balance = summary_data.get('balance', income_total - expense_total)
         
-        # Simplified message - just total and categories without details
-        message = (
-            f"📊 <b>Месячный отчет за {month_name}</b>\n\n"
-            f"💰 <b>Общая сумма расходов:</b> {format_amount(total)}\n"
+        # If no income and no expenses, send only a simple text message
+        if income_total == 0 and expense_total == 0:
+            message = (
+                f"📊 <b>Месячный отчет за {month_name}</b>\n\n"
+                f"✨ В прошлом месяце не было операций!"
+            )
+            await bot.send_message(
+                chat_id=user.telegram_id,
+                text=message,
+                parse_mode="HTML"
+            )
+            logger.info(f"Sent monthly summary to user {user.id} ({user.telegram_id}) - no operations")
+            return
+        
+        # Generate and send HTML report
+        from bot.utils.html_report_export import export_monthly_report, generate_report_filename
+        
+        html_file = await export_monthly_report(
+            family_name=family_name or "Семья",
+            period_name=month_name,
+            stats=summary_data
         )
         
-        if total == 0:
-            message += "\n✨ В прошлом месяце не было расходов!"
-        elif by_category:
-            message += "\n📈 <b>Расходы по категориям:</b>\n\n"
-            
-            for cat_data in by_category:
-                cat_name = cat_data['category_name']
-                cat_icon = cat_data['category_icon']
-                amount = cat_data['amount']
-                percentage = cat_data.get('percentage', 0)
-                
-                message += f"{cat_icon} {cat_name}: {format_amount(amount)} ({percentage:.1f}%)\n"
+        filename = generate_report_filename(
+            family_name=family_name or "monthly_report",
+            period_name=month_name,
+            is_personal=True
+        )
         
-        # Send simplified text message
-        await bot.send_message(
+        # Build caption with income, expense and balance
+        caption_lines = [f"📊 <b>Месячный отчет за {month_name}</b>\n"]
+        
+        if income_total > 0:
+            caption_lines.append(f"📈 Доходы: {format_amount(income_total)}")
+        if expense_total > 0:
+            caption_lines.append(f"📉 Расходы: {format_amount(expense_total)}")
+        
+        balance_emoji = "💰" if balance >= 0 else "⚠️"
+        caption_lines.append(f"{balance_emoji} Баланс: {format_amount(balance)}")
+        caption_lines.append("\nОткройте файл в браузере для детального отчета")
+        
+        caption = "\n".join(caption_lines)
+        
+        await bot.send_document(
             chat_id=user.telegram_id,
-            text=message,
+            document=html_file,
+            filename=filename,
+            caption=caption,
             parse_mode="HTML"
         )
         
-        # Generate and send HTML report if there are expenses
-        if total > 0:
-            try:
-                from bot.utils.html_report_export import export_monthly_report, generate_report_filename
-                
-                # Generate HTML report
-                html_file = await export_monthly_report(
-                    family_name=family_name or "Семья",
-                    period_name=month_name,
-                    stats=summary_data
-                )
-                
-                filename = generate_report_filename(
-                    family_name=family_name or "monthly_report",
-                    period_name=month_name,
-                    is_personal=True
-                )
-                
-                # Send HTML report as document
-                await bot.send_document(
-                    chat_id=user.telegram_id,
-                    document=html_file,
-                    filename=filename,
-                    caption="📊 Детальный отчет в HTML формате\n\nОткройте файл в браузере для просмотра красиво оформленного отчета"
-                )
-                
-                logger.info(f"Sent monthly summary with HTML report to user {user.id} ({user.telegram_id})")
-                
-            except Exception as e:
-                logger.error(f"Failed to generate/send HTML report for user {user.id}: {e}", exc_info=True)
-                # Continue - at least text message was sent
-                logger.info(f"Sent monthly summary (text only) to user {user.id} ({user.telegram_id})")
-        else:
-            logger.info(f"Sent monthly summary to user {user.id} ({user.telegram_id}) - no expenses")
+        logger.info(f"Sent monthly summary HTML report to user {user.id} ({user.telegram_id})")
         
     except TelegramError as e:
         logger.error(f"Failed to send monthly summary to user {user.id}: {e}")
@@ -209,15 +201,15 @@ async def check_and_send_monthly_summaries(bot: Bot) -> None:
                     logger.debug(f"User {user.id} has no families, skipping")
                     continue
                 
-                # For each family, get summary for previous month
+                # For each family, get summary for previous month (with income and expenses)
                 for family in families:
                     try:
-                        summary = await crud.get_user_expenses_detailed_monthly_report(
+                        summary = await crud.get_period_financial_statistics(
                             session,
-                            user.id,
                             family.id,
                             start_date=first_day_of_previous_month,
-                            end_date=last_day_of_previous_month
+                            end_date=last_day_of_previous_month,
+                            is_family=True
                         )
                         
                         # Send summary with HTML report

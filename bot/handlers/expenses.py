@@ -17,7 +17,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.database import crud, get_db
+from bot.database import CategoryTypeEnum, crud, get_db
 # CSV export removed - imports commented out
 # from bot.utils.export import generate_csv, generate_csv_filename
 from bot.utils.formatters import (
@@ -28,7 +28,7 @@ from bot.utils.formatters import (
     format_family_expense,
     format_family_summary,
 )
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_large_expense, notify_expense_to_family
+from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_expense_to_family
 from bot.utils.keyboards import add_navigation_buttons, get_add_another_keyboard, get_home_button
 
 logger = logging.getLogger(__name__)
@@ -192,7 +192,6 @@ class ExpenseData:
     family_name: Optional[str] = None
     category_id: Optional[int] = None
     category_name: Optional[str] = None
-    category_icon: Optional[str] = None
     amount: Optional[Decimal] = None
     description: Optional[str] = None
 
@@ -204,7 +203,6 @@ class ExpenseData:
             family_name=context.user_data.get(f'{prefix}_family_name'),
             category_id=context.user_data.get(f'{prefix}_category_id'),
             category_name=context.user_data.get(f'{prefix}_category_name'),
-            category_icon=context.user_data.get(f'{prefix}_category_icon'),
             amount=context.user_data.get(f'{prefix}_amount'),
             description=context.user_data.get(f'{prefix}_description')
         )
@@ -219,8 +217,6 @@ class ExpenseData:
             context.user_data[f'{prefix}_category_id'] = self.category_id
         if self.category_name is not None:
             context.user_data[f'{prefix}_category_name'] = self.category_name
-        if self.category_icon is not None:
-            context.user_data[f'{prefix}_category_icon'] = self.category_icon
         if self.amount is not None:
             context.user_data[f'{prefix}_amount'] = self.amount
         if self.description is not None:
@@ -232,7 +228,6 @@ class ExpenseData:
         context.user_data.pop(f'{prefix}_family_name', None)
         context.user_data.pop(f'{prefix}_category_id', None)
         context.user_data.pop(f'{prefix}_category_name', None)
-        context.user_data.pop(f'{prefix}_category_icon', None)
         context.user_data.pop(f'{prefix}_amount', None)
         context.user_data.pop(f'{prefix}_description', None)
 
@@ -404,12 +399,12 @@ class MessageBuilder:
         )
     
     @staticmethod
-    def build_amount_input_message(family_name: str, category_icon: str, category_name: str) -> str:
+    def build_amount_input_message(family_name: str, category_name: str) -> str:
         """Build message for amount input."""
         return (
             f"{Emoji.MONEY} <b>Добавление расхода</b>\n"
             f"{Emoji.FAMILY} Семья: <b>{family_name}</b>\n"
-            f"{Emoji.CATEGORY} Категория: {category_icon} <b>{category_name}</b>\n\n"
+            f"{Emoji.CATEGORY} Категория: <b>{category_name}</b>\n\n"
             f"{Emoji.MONEY} Введите сумму расхода:\n\n"
             "💡 <b>Примеры:</b>\n"
             "• 100\n"
@@ -428,8 +423,8 @@ class MessageBuilder:
         return (
             f"{Emoji.MONEY} <b>Добавление расхода</b>\n"
             f"{Emoji.FAMILY} Семья: <b>{expense_data.family_name}</b>\n"
-            f"{Emoji.CATEGORY} Категория: {expense_data.category_icon} <b>{expense_data.category_name}</b>\n"
-            f"{Emoji.MONEY} Сумма: <b>{format_amount(expense_data.amount)} ₽</b>\n\n"
+            f"{Emoji.CATEGORY} Категория: <b>{expense_data.category_name}</b>\n"
+            f"{Emoji.MONEY} Сумма: <b>{format_amount(expense_data.amount)}</b>\n\n"
             f"{Emoji.DESCRIPTION} Введите описание расхода (опционально):\n\n"
             "💡 <b>Примеры:</b>\n"
             "• Продукты в Пятёрочке\n"
@@ -445,8 +440,8 @@ class MessageBuilder:
         message = (
             f"{Emoji.SUCCESS} <b>Расход успешно добавлен!</b>\n\n"
             f"{Emoji.FAMILY} <b>Семья:</b> {expense_data.family_name}\n"
-            f"{Emoji.CATEGORY} <b>Категория:</b> {expense_data.category_icon} {expense_data.category_name}\n"
-            f"{Emoji.MONEY} <b>Сумма:</b> {format_amount(expense.amount)} ₽\n"
+            f"{Emoji.CATEGORY} <b>Категория:</b> {expense_data.category_name}\n"
+            f"{Emoji.MONEY} <b>Сумма:</b> {format_amount(expense.amount)}\n"
         )
         
         if expense_data.description:
@@ -515,7 +510,7 @@ class KeyboardBuilder:
         row = []
         for category in categories:
             button = InlineKeyboardButton(
-                f"{category.icon} {category.name}",
+                category.name,
                 callback_data=f"{CallbackPattern.SELECT_CATEGORY_PREFIX}{category.id}"
             )
             row.append(button)
@@ -765,7 +760,11 @@ async def show_category_selection(update: Update, context: ContextTypes.DEFAULT_
     expense_data = ExpenseData.from_context(context)
     
     async def get_categories(session):
-        return await crud.get_family_categories(session, expense_data.family_id)
+        return await crud.get_family_categories(
+            session,
+            expense_data.family_id,
+            category_type=CategoryTypeEnum.EXPENSE
+        )
     
     categories = await handle_db_operation(get_categories, "Error showing categories")
     
@@ -801,12 +800,10 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     expense_data = ExpenseData.from_context(context)
     expense_data.category_id = category_id
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     expense_data.save_to_context(context)
     
     message = MessageBuilder.build_amount_input_message(
         expense_data.family_name,
-        category.icon,
         category.name
     )
     keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
@@ -861,7 +858,12 @@ async def create_category_name_received(update: Update, context: ContextTypes.DE
     
     # Check if category name already exists
     async def check_name_exists(session):
-        return await crud.category_name_exists(session, name, expense_data.family_id)
+        return await crud.category_name_exists(
+            session,
+            name,
+            expense_data.family_id,
+            category_type=CategoryTypeEnum.EXPENSE
+        )
     
     exists = await handle_db_operation(check_name_exists, "Error checking category name")
     
@@ -935,7 +937,8 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
             session,
             name=category_name,
             icon=emoji,
-            family_id=expense_data.family_id
+            family_id=expense_data.family_id,
+            category_type=CategoryTypeEnum.EXPENSE
         )
         await session.commit()
         return category
@@ -953,7 +956,6 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
     # Update expense data with the new category
     expense_data.category_id = category.id
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     expense_data.save_to_context(context)
     
     # Clear temporary data
@@ -962,7 +964,6 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
     # Show success message and proceed to amount input
     message = MessageBuilder.build_amount_input_message(
         expense_data.family_name,
-        category.icon,
         category.name
     )
     keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
@@ -1043,9 +1044,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             category = await crud.get_category_by_id(session, expense_data.category_id)
             family_members = await crud.get_family_members(session, expense_data.family_id)
             
-            # Send notifications about large expenses
-            await notify_large_expense(session, context.bot, expense, family_members)
-            
             # Send notifications to family members about the new expense
             await notify_expense_to_family(session, context.bot, expense, family_members)
             
@@ -1061,7 +1059,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         # Update expense_data with category info
         expense_data.category_name = category.name
-        expense_data.category_icon = category.icon
         
         message = MessageBuilder.build_expense_created_message(expense_data, expense, user)
         reply_markup = get_add_another_keyboard()
@@ -1108,9 +1105,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         category = await crud.get_category_by_id(session, expense_data.category_id)
         family_members = await crud.get_family_members(session, expense_data.family_id)
         
-        # Send notifications about large expenses
-        await notify_large_expense(session, context.bot, expense, family_members)
-        
         # Send notifications to family members about the new expense
         await notify_expense_to_family(session, context.bot, expense, family_members)
         
@@ -1126,7 +1120,6 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Update expense_data with category info
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     
     message = MessageBuilder.build_expense_created_message(expense_data, expense, user)
     reply_markup = get_add_another_keyboard()
@@ -1191,9 +1184,6 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
         category = await crud.get_category_by_id(session, expense_data.category_id)
         family_members = await crud.get_family_members(session, expense_data.family_id)
         
-        # Send notifications about large expenses
-        await notify_large_expense(session, context.bot, expense, family_members)
-        
         # Send notifications to family members about the new expense
         await notify_expense_to_family(session, context.bot, expense, family_members)
         
@@ -1213,7 +1203,6 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Update expense_data with category info (in case it was loaded from DB)
     expense_data.category_name = category.name
-    expense_data.category_icon = category.icon
     
     message = MessageBuilder.build_expense_created_message(expense_data, expense, user)
     reply_markup = get_add_another_keyboard()
@@ -1447,7 +1436,6 @@ async def display_expenses_page(update: Update, context: ContextTypes.DEFAULT_TY
             for cat in summary['by_category']:
                 message += format_category_summary(
                     cat['category_name'],
-                    cat['category_icon'],
                     cat['amount']
                 ) + "\n"
         
@@ -1558,13 +1546,15 @@ async def pagination_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     start_date, end_date = crud.calculate_date_range(view_data.period)
     
     async def get_statistics(session):
-        return await crud.get_period_statistics(
+        return await crud.get_period_financial_statistics(
             session, user_id, start_date, end_date, is_family=False
         )
     
     stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
     
-    if not stats or stats.get('total', 0) == 0:
+    income_total = stats.get('income_total', 0) if stats else 0
+    expense_total = stats.get('expense_total', 0) if stats else 0
+    if not stats or (income_total == 0 and expense_total == 0):
         await query.edit_message_text(ErrorMessage.NO_EXPORT_DATA)
         return
     
@@ -1839,7 +1829,7 @@ async def display_family_expenses_page(update: Update, context: ContextTypes.DEF
             for user_id_key, user_data in by_user_data.items():
                 message += f"{Emoji.USER} <b>{user_data['name']}</b> - {format_amount(user_data['amount'])}\n\n"
                 for exp in user_data['expenses'][:5]:
-                    message += f"  {exp.category.icon} {exp.category.name} - {format_amount(exp.amount)}\n"
+                    message += f"  {exp.category.name} - {format_amount(exp.amount)}\n"
                     message += f"  {Emoji.CALENDAR} {format_date(exp.date)}\n\n"
                 
                 if len(user_data['expenses']) > 5:
@@ -1987,13 +1977,15 @@ async def family_pagination_handler(update: Update, context: ContextTypes.DEFAUL
     start_date, end_date = crud.calculate_date_range(view_data.period)
     
     async def get_statistics(session):
-        return await crud.get_period_statistics(
+        return await crud.get_period_financial_statistics(
             session, view_data.family_id, start_date, end_date, is_family=True
         )
     
     stats = await handle_db_operation(get_statistics, "Error getting statistics for HTML export")
     
-    if not stats or stats.get('total', 0) == 0:
+    income_total = stats.get('income_total', 0) if stats else 0
+    expense_total = stats.get('expense_total', 0) if stats else 0
+    if not stats or (income_total == 0 and expense_total == 0):
         await query.edit_message_text(ErrorMessage.NO_EXPORT_DATA)
         return
     
@@ -2114,7 +2106,8 @@ add_expense_handler = ConversationHandler(
     name="add_expense_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 view_expenses_handler = ConversationHandler(
@@ -2135,13 +2128,14 @@ view_expenses_handler = ConversationHandler(
         CallbackQueryHandler(cancel_view_expenses, pattern=f"^{CallbackPattern.CANCEL_VIEW}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="view_expenses_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses CommandHandler in entry_points and fallbacks
 )
 
 family_expenses_handler = ConversationHandler(
@@ -2162,11 +2156,12 @@ family_expenses_handler = ConversationHandler(
         CallbackQueryHandler(cancel_family_expenses, pattern=f"^{CallbackPattern.CANCEL_FAMILY}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="family_expenses_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses CommandHandler in entry_points and fallbacks
 )

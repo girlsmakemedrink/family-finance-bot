@@ -323,7 +323,7 @@ class KeyboardBuilder:
         """Build keyboard for category selection."""
         keyboard = [
             [InlineKeyboardButton(
-                f"{category.icon} {category.name}",
+                category.name,
                 callback_data=f"{CallbackPattern.SEARCH_CAT_PREFIX}{category.id}"
             )]
             for category in categories
@@ -600,11 +600,12 @@ search_handler = ConversationHandler(
         CommandHandler('cancel', cancel_search),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense)$")
     ],
     allow_reentry=True,
     name="search_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )

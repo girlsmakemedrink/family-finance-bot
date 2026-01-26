@@ -5,11 +5,21 @@ for tracking family expenses and income.
 """
 
 import logging
+import warnings
 from typing import Optional
 
 from telegram.ext import Application
+from telegram.warnings import PTBUserWarning
 
 from config.settings import settings
+
+# Suppress PTBUserWarning about per_message=False with CallbackQueryHandler
+# This is expected behavior for ConversationHandlers that mix CallbackQueryHandler with MessageHandler/CommandHandler
+warnings.filterwarnings(
+    "ignore",
+    message=".*'CallbackQueryHandler' will not be tracked for every message.*",
+    category=PTBUserWarning
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +80,7 @@ class FamilyFinanceBot:
             # my_export_gdocs_handler,  # Export moved to statistics section
             pagination_handler,
         )
+        from bot.handlers.incomes import add_income_handler
         from bot.handlers.family import (
             confirm_delete_family_handler as my_families_confirm_delete_handler,
             confirm_leave_family_handler as my_families_confirm_leave_handler,
@@ -115,10 +126,7 @@ class FamilyFinanceBot:
             settings_expense_notifications_handler,
             settings_handler,
             settings_monthly_summary_handler,
-            settings_threshold_handler,
             settings_timezone_handler,
-            threshold_disable_handler,
-            threshold_input_handler,
             timezone_selection_handler,
         )
         from bot.handlers.start import about_handler, start_callback_handler, start_handler
@@ -140,6 +148,7 @@ class FamilyFinanceBot:
         self.application.add_handler(create_family_handler)
         self.application.add_handler(join_family_handler)
         self.application.add_handler(add_expense_handler)
+        self.application.add_handler(add_income_handler)
         self.application.add_handler(view_expenses_handler)
         self.application.add_handler(family_expenses_handler)
         self.application.add_handler(stats_handler)
@@ -244,17 +253,7 @@ class FamilyFinanceBot:
         self.application.add_handler(date_format_selection_handler)
         self.application.add_handler(settings_monthly_summary_handler)
         self.application.add_handler(monthly_summary_time_handler)
-        self.application.add_handler(settings_threshold_handler)
-        self.application.add_handler(threshold_disable_handler)
         self.application.add_handler(settings_expense_notifications_handler)
-        
-        # Register threshold input handler (with lower priority)
-        from telegram.ext import MessageHandler, filters
-        threshold_msg_handler = MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            threshold_input_handler
-        )
-        self.application.add_handler(threshold_msg_handler, group=10)
         
         # Register family settings callback handlers
         self.application.add_handler(family_settings_callback_handler)
@@ -306,10 +305,18 @@ class FamilyFinanceBot:
         """Stop the bot gracefully."""
         if self.application:
             logger.info("Stopping bot...")
-            await self.application.updater.stop()
-            await self.application.stop()
-            await self.application.shutdown()
-            logger.info("Bot stopped successfully")
+            try:
+                # Only stop updater if it's running
+                if self.application.updater and self.application.updater.running:
+                    await self.application.updater.stop()
+                # Only stop application if it's running
+                if self.application.running:
+                    await self.application.stop()
+                # Always try to shutdown
+                await self.application.shutdown()
+                logger.info("Bot stopped successfully")
+            except Exception as e:
+                logger.warning(f"Error during bot shutdown: {e}")
 
 
 __version__ = "0.1.0"

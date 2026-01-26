@@ -298,7 +298,7 @@ class MessageBuilder:
             message += "Ваши шаблоны:\n\n"
             for template in templates:
                 message += (
-                    f"{template.category.icon} <b>{template.name}</b>\n"
+                    f"• <b>{template.name}</b> ({template.category.name})\n"
                     f"{Emoji.MONEY} {format_amount(template.amount)}\n\n"
                 )
         else:
@@ -311,7 +311,7 @@ class MessageBuilder:
         """Build message for expense creation confirmation."""
         message = (
             f"{Emoji.SUCCESS} <b>Расход добавлен!</b>\n\n"
-            f"{template.category.icon} <b>{template.category.name}</b>\n"
+            f"<b>{template.category.name}</b>\n"
             f"{Emoji.MONEY} Сумма: <b>{format_amount(expense.amount)}</b>\n"
         )
         
@@ -365,7 +365,7 @@ class MessageBuilder:
         message = (
             f"{Emoji.SUCCESS} <b>Шаблон создан!</b>\n\n"
             f"{Emoji.NOTE} {template.name}\n"
-            f"{template.category.icon} {template.category.name}\n"
+            f"Категория: {template.category.name}\n"
             f"{Emoji.MONEY} {format_amount(template.amount)}\n"
         )
         
@@ -421,7 +421,7 @@ class KeyboardBuilder:
         for template in templates:
             buttons.append([
                 InlineKeyboardButton(
-                    f"{Emoji.SUCCESS} {template.category.icon} {template.name}",
+                    f"{Emoji.SUCCESS} {template.name}",
                     callback_data=f"{CallbackPattern.USE_TEMPLATE_PREFIX}{template.id}"
                 )
             ])
@@ -446,7 +446,7 @@ class KeyboardBuilder:
         """Build keyboard for category selection."""
         buttons = [
             [InlineKeyboardButton(
-                f"{category.icon} {category.name}",
+                category.name,
                 callback_data=f"{CallbackPattern.CATEGORY_PREFIX}{category.id}"
             )]
             for category in categories
@@ -492,7 +492,7 @@ class KeyboardBuilder:
         """Build keyboard for template deletion."""
         buttons = [
             [InlineKeyboardButton(
-                f"{Emoji.DELETE} {template.category.icon} {template.name}",
+                f"{Emoji.DELETE} {template.name}",
                 callback_data=f"{CallbackPattern.DELETE_TEMPLATE_PREFIX}{template.id}"
             )]
             for template in templates
@@ -974,11 +974,12 @@ quick_expense_handler = ConversationHandler(
         CommandHandler('cancel', cancel_quick_expense),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|search)$")
     ],
     allow_reentry=True,
     name="quick_expense_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
