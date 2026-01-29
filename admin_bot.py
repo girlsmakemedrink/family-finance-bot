@@ -11,6 +11,7 @@ Separate bot that connects to the same database and provides:
 
 import asyncio
 import html
+import os
 import signal
 import sys
 from dataclasses import dataclass
@@ -44,6 +45,16 @@ setup_logging()
 logger = get_logger(__name__)
 
 PAGE_SIZE = 10
+
+
+def _get_admin_bot_token() -> str:
+    """
+    Backward-compatible token getter.
+
+    Some deployments may have an older config/settings.py without ADMIN_BOT_TOKEN attribute.
+    """
+    token = getattr(settings, "ADMIN_BOT_TOKEN", "") or os.getenv("ADMIN_BOT_TOKEN", "")
+    return token.strip()
 
 
 @dataclass(frozen=True)
@@ -731,13 +742,14 @@ class AdminBotRunner:
         self.shutdown_event: asyncio.Event = asyncio.Event()
 
     async def setup(self) -> None:
-        if not settings.ADMIN_BOT_TOKEN:
+        admin_token = _get_admin_bot_token()
+        if not admin_token:
             raise ValueError("ADMIN_BOT_TOKEN is not set. Please add it to .env")
 
         logger.info("Initializing database (admin bot)...")
         await init_database()
 
-        self.application = Application.builder().token(settings.ADMIN_BOT_TOKEN).build()
+        self.application = Application.builder().token(admin_token).build()
 
         # Commands
         self.application.add_handler(CommandHandler("start", start_cmd))
@@ -807,6 +819,7 @@ async def main() -> None:
     logger.info(f"Log level: {settings.LOG_LEVEL}")
     logger.info(f"Database: {settings.DATABASE_URL}")
     logger.info(f"Admins count: {len(settings.ADMIN_USER_IDS)}")
+    logger.info(f"Admin bot token set: {bool(_get_admin_bot_token())}")
     logger.info("=" * 50)
 
     runner = AdminBotRunner()
