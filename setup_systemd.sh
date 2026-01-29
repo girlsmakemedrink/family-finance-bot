@@ -7,7 +7,7 @@
 
 set -e
 
-echo "🚀 Установка Family Finance Bot как systemd service"
+echo "🚀 Установка Family Finance Bot (основной + админ) как systemd services"
 echo "===================================================="
 echo ""
 
@@ -31,8 +31,9 @@ echo "   Директория: $BOT_DIR"
 echo "   Python: $(which python || which python3)"
 echo ""
 
-# Создаем временный service файл
+# Создаем временные service файлы
 SERVICE_FILE="/tmp/family-finance-bot.service"
+ADMIN_SERVICE_FILE="/tmp/family-finance-admin-bot.service"
 
 cat > "$SERVICE_FILE" << EOF
 [Unit]
@@ -55,11 +56,34 @@ SyslogIdentifier=family-finance-bot
 WantedBy=multi-user.target
 EOF
 
+cat > "$ADMIN_SERVICE_FILE" << EOF
+[Unit]
+Description=Family Finance Admin Panel Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=$CURRENT_USER
+WorkingDirectory=$BOT_DIR
+Environment="PATH=$BOT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=$BOT_DIR/venv/bin/python $BOT_DIR/admin_bot.py
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=family-finance-admin-bot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 echo "✅ Service файл создан"
 echo ""
-echo "📄 Содержимое service файла:"
+echo "📄 Содержимое service файлов:"
 echo "-----------------------------------"
 cat "$SERVICE_FILE"
+echo ""
+cat "$ADMIN_SERVICE_FILE"
 echo "-----------------------------------"
 echo ""
 
@@ -67,12 +91,14 @@ read -p "Продолжить установку? (y/n): " confirm
 if [ "$confirm" != "y" ]; then
     echo "Отменено"
     rm "$SERVICE_FILE"
+    rm "$ADMIN_SERVICE_FILE"
     exit 0
 fi
 
 # Копируем service файл
 echo "📦 Копирование service файла..."
 sudo cp "$SERVICE_FILE" /etc/systemd/system/family-finance-bot.service
+sudo cp "$ADMIN_SERVICE_FILE" /etc/systemd/system/family-finance-admin-bot.service
 
 # Перезагружаем systemd
 echo "🔄 Перезагрузка systemd daemon..."
@@ -81,10 +107,12 @@ sudo systemctl daemon-reload
 # Включаем автозапуск
 echo "⚙️  Включение автозапуска..."
 sudo systemctl enable family-finance-bot
+sudo systemctl enable family-finance-admin-bot
 
 # Запускаем службу
-echo "🚀 Запуск бота..."
+echo "🚀 Запуск ботов..."
 sudo systemctl start family-finance-bot
+sudo systemctl start family-finance-admin-bot
 
 # Ждем пару секунд
 sleep 3
@@ -95,6 +123,8 @@ echo "✨ Установка завершена!"
 echo ""
 echo "📊 Статус службы:"
 sudo systemctl status family-finance-bot --no-pager || true
+echo ""
+sudo systemctl status family-finance-admin-bot --no-pager || true
 
 echo ""
 echo "===================================================="
@@ -102,12 +132,18 @@ echo "✅ Готово!"
 echo ""
 echo "Полезные команды:"
 echo "  sudo systemctl status family-finance-bot   # Статус"
+echo "  sudo systemctl status family-finance-admin-bot   # Статус админки"
 echo "  sudo systemctl stop family-finance-bot     # Остановить"
+echo "  sudo systemctl stop family-finance-admin-bot     # Остановить админку"
 echo "  sudo systemctl start family-finance-bot    # Запустить"
+echo "  sudo systemctl start family-finance-admin-bot    # Запустить админку"
 echo "  sudo systemctl restart family-finance-bot  # Перезапустить"
-echo "  sudo journalctl -u family-finance-bot -f   # Логи"
+echo "  sudo systemctl restart family-finance-admin-bot  # Перезапустить админку"
+echo "  sudo journalctl -u family-finance-bot -f   # Логи основного"
+echo "  sudo journalctl -u family-finance-admin-bot -f   # Логи админки"
 echo ""
 
 # Удаляем временный файл
 rm "$SERVICE_FILE"
+rm "$ADMIN_SERVICE_FILE"
 
