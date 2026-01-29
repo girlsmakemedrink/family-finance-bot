@@ -150,11 +150,22 @@ quick_install() {
 # Установка systemd service
 install_systemd() {
     print_header "Установка systemd service"
-    
-    local service_file="family_finance_bot/family-finance-bot.service"
-    
-    if [ ! -f "$service_file" ]; then
-        print_error "Файл $service_file не найден!"
+
+    # Support both repo layouts:
+    # - service files in repo root (current repo)
+    # - service files inside ./family_finance_bot/ (older layout)
+    local main_service_file="family-finance-bot.service"
+    local admin_service_file="family-finance-admin-bot.service"
+
+    if [ ! -f "$main_service_file" ] && [ -f "family_finance_bot/family-finance-bot.service" ]; then
+        main_service_file="family_finance_bot/family-finance-bot.service"
+    fi
+    if [ ! -f "$admin_service_file" ] && [ -f "family_finance_bot/family-finance-admin-bot.service" ]; then
+        admin_service_file="family_finance_bot/family-finance-admin-bot.service"
+    fi
+
+    if [ ! -f "$main_service_file" ]; then
+        print_error "Файл family-finance-bot.service не найден!"
         read -p "Нажмите Enter для продолжения..."
         show_menu
         return
@@ -163,31 +174,50 @@ install_systemd() {
     print_warning "ВАЖНО: Перед установкой проверьте пути в service файле!"
     echo ""
     echo "Текущие настройки в файле:"
-    grep -E "WorkingDirectory|ExecStart|EnvironmentFile" "$service_file" || true
+    grep -E "WorkingDirectory|ExecStart|EnvironmentFile" "$main_service_file" || true
     echo ""
     
     read -p "Хотите отредактировать файл сейчас? (y/n): " edit
     if [ "$edit" = "y" ]; then
-        ${EDITOR:-nano} "$service_file"
+        ${EDITOR:-nano} "$main_service_file"
+        if [ -f "$admin_service_file" ]; then
+            echo ""
+            print_info "Также будет установлен админ-бот: $admin_service_file"
+        fi
     fi
     
     print_info "Копирование service файла..."
-    sudo cp "$service_file" /etc/systemd/system/
+    sudo cp "$main_service_file" /etc/systemd/system/family-finance-bot.service
+    if [ -f "$admin_service_file" ]; then
+        sudo cp "$admin_service_file" /etc/systemd/system/family-finance-admin-bot.service
+    else
+        print_warning "Файл админ-сервиса не найден — будет установлен только основной бот"
+    fi
     
     print_info "Перезагрузка systemd..."
     sudo systemctl daemon-reload
     
     print_info "Включение автозапуска..."
     sudo systemctl enable family-finance-bot
+    if [ -f "$admin_service_file" ]; then
+        sudo systemctl enable family-finance-admin-bot
+    fi
     
     print_info "Запуск бота..."
     sudo systemctl start family-finance-bot
+    if [ -f "$admin_service_file" ]; then
+        sudo systemctl start family-finance-admin-bot
+    fi
     
     sleep 2
     
-    print_success "Systemd service установлен!"
+    print_success "Systemd services установлены!"
     echo ""
     sudo systemctl status family-finance-bot --no-pager || true
+    if [ -f "$admin_service_file" ]; then
+        echo ""
+        sudo systemctl status family-finance-admin-bot --no-pager || true
+    fi
     echo ""
     
     read -p "Нажмите Enter для продолжения..."

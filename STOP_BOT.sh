@@ -15,9 +15,18 @@ detect_method() {
         echo "systemd"
         return
     fi
+
+    if systemctl is-active --quiet family-finance-admin-bot 2>/dev/null; then
+        echo "systemd"
+        return
+    fi
     
     if command -v docker-compose &> /dev/null; then
         if docker ps | grep -q family_finance_bot 2>/dev/null; then
+            echo "docker"
+            return
+        fi
+        if docker ps | grep -q family_finance_admin_bot 2>/dev/null; then
             echo "docker"
             return
         fi
@@ -27,13 +36,25 @@ detect_method() {
         echo "screen"
         return
     fi
+    if screen -ls | grep -q family_admin_bot 2>/dev/null; then
+        echo "screen"
+        return
+    fi
     
     if tmux ls 2>/dev/null | grep -q family_bot; then
         echo "tmux"
         return
     fi
+    if tmux ls 2>/dev/null | grep -q family_admin_bot; then
+        echo "tmux"
+        return
+    fi
     
     if pgrep -f "python.*main.py" > /dev/null; then
+        echo "process"
+        return
+    fi
+    if pgrep -f "python.*admin_bot.py" > /dev/null; then
         echo "process"
         return
     fi
@@ -47,6 +68,7 @@ case $METHOD in
     systemd)
         echo "📦 Остановка systemd service..."
         sudo systemctl stop family-finance-bot
+        sudo systemctl stop family-finance-admin-bot 2>/dev/null || true
         echo "✅ Бот остановлен"
         ;;
         
@@ -55,25 +77,28 @@ case $METHOD in
         BOT_DIR="/opt/family-finance-bot"
         cd "$BOT_DIR" 2>/dev/null || cd "$(dirname "$0")/family_finance_bot"
         docker-compose down
-        echo "✅ Бот остановлен"
+        echo "✅ Боты остановлены"
         ;;
         
     screen)
         echo "📺 Остановка screen сессии..."
-        screen -S family_bot -X quit
-        echo "✅ Screen сессия завершена"
+        screen -S family_bot -X quit 2>/dev/null || true
+        screen -S family_admin_bot -X quit 2>/dev/null || true
+        echo "✅ Screen сессии завершены"
         ;;
         
     tmux)
         echo "📺 Остановка tmux сессии..."
-        tmux kill-session -t family_bot
-        echo "✅ Tmux сессия завершена"
+        tmux kill-session -t family_bot 2>/dev/null || true
+        tmux kill-session -t family_admin_bot 2>/dev/null || true
+        echo "✅ Tmux сессии завершены"
         ;;
         
     process)
         echo "🔧 Остановка процесса..."
-        pkill -f "python.*main.py"
-        echo "✅ Процесс завершен"
+        pkill -f "python.*main.py" 2>/dev/null || true
+        pkill -f "python.*admin_bot.py" 2>/dev/null || true
+        echo "✅ Процессы завершены"
         ;;
         
     none)

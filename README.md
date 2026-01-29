@@ -169,6 +169,23 @@ venv\Scripts\activate  # Windows
 python main.py
 ```
 
+### Админ-панель (отдельный бот)
+
+Админ-панель — это **второй Telegram-бот** (`admin_bot.py`), который подключается к **той же БД** и доступен только пользователям из `ADMIN_USER_IDS`.
+
+В `.env` добавьте:
+
+```env
+ADMIN_BOT_TOKEN=ваш_токен_админ_бота_от_BotFather
+ADMIN_USER_IDS=123456789,987654321
+```
+
+Запуск локально:
+
+```bash
+python admin_bot.py
+```
+
 ### Запуск с Docker
 
 ```bash
@@ -176,7 +193,7 @@ python main.py
 docker-compose up -d
 
 # Просмотр логов
-docker-compose logs -f bot
+docker-compose logs -f bot admin_bot
 
 # Остановка
 docker-compose down
