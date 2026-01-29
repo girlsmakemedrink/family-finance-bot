@@ -17,6 +17,7 @@ Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$CURRENT_DIR
 Environment="PATH=$CURRENT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=$CURRENT_DIR/.env
 ExecStart=$CURRENT_DIR/venv/bin/python $CURRENT_DIR/main.py
 Restart=on-failure
 RestartSec=10s
@@ -37,6 +38,7 @@ Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$CURRENT_DIR
 Environment="PATH=$CURRENT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=$CURRENT_DIR/.env
 ExecStart=$CURRENT_DIR/venv/bin/python $CURRENT_DIR/admin_bot.py
 Restart=on-failure
 RestartSec=10s

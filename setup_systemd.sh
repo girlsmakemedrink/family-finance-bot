@@ -45,6 +45,7 @@ Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$BOT_DIR
 Environment="PATH=$BOT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=$BOT_DIR/.env
 ExecStart=$BOT_DIR/venv/bin/python $BOT_DIR/main.py
 Restart=on-failure
 RestartSec=10s
@@ -66,6 +67,7 @@ Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$BOT_DIR
 Environment="PATH=$BOT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=$BOT_DIR/.env
 ExecStart=$BOT_DIR/venv/bin/python $BOT_DIR/admin_bot.py
 Restart=on-failure
 RestartSec=10s
