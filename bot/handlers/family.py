@@ -31,6 +31,7 @@ from bot.utils.constants import (
     MSG_INVITE_CODE_INVALID,
     MSG_WITHOUT_FAMILIES,
     MSG_WITH_FAMILIES,
+    MSG_QUICK_ACTIONS_FOOTER,
 )
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
 from bot.utils.formatters import format_amount
@@ -528,6 +529,9 @@ async def cancel_conversation(
                 f"{expense_line}\n"
                 f"💰 Баланс: {format_amount(balance)}"
             )
+
+            # Move "quick actions" hint to the very end (right above the buttons)
+            welcome_message += "\n\n" + MSG_QUICK_ACTIONS_FOOTER
         else:
             welcome_message += MSG_WITHOUT_FAMILIES
         

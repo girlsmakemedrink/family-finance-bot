@@ -12,6 +12,7 @@ from bot.database import crud, get_db
 from bot.utils.constants import (
     MSG_WITHOUT_FAMILIES,
     MSG_WITH_FAMILIES,
+    MSG_QUICK_ACTIONS_FOOTER,
     WELCOME_NEW_USER,
     WELCOME_RETURNING_USER,
 )
@@ -214,6 +215,10 @@ async def _process_start_command(
 
         # Add family balance block (if any family exists)
         welcome_message += await _build_family_balance_block(session, context, families)
+
+        # Move "quick actions" hint to the very end (right above the buttons)
+        if families:
+            welcome_message += "\n\n" + MSG_QUICK_ACTIONS_FOOTER
         
         # Get appropriate keyboard
         reply_markup = get_main_menu_keyboard(has_families=bool(families))
