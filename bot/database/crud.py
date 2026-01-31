@@ -2418,6 +2418,96 @@ async def get_period_financial_statistics(
     }
 
 
+# ============================================================================
+# Lightweight totals helpers (for UI headers, main menu, etc.)
+# ============================================================================
+
+async def get_family_income_expense_totals(
+    session: AsyncSession,
+    family_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> dict:
+    """Get total income/expense/balance for a family (lightweight).
+    
+    Unlike detailed statistics functions, this performs only aggregate SUM queries.
+    
+    Returns:
+        {
+            'income_total': Decimal,
+            'expense_total': Decimal,
+            'balance': Decimal
+        }
+    """
+    from sqlalchemy import func
+    
+    income_stmt = select(func.coalesce(func.sum(Income.amount), 0)).where(Income.family_id == family_id)
+    expense_stmt = select(func.coalesce(func.sum(Expense.amount), 0)).where(Expense.family_id == family_id)
+    
+    if start_date:
+        income_stmt = income_stmt.where(Income.date >= start_date)
+        expense_stmt = expense_stmt.where(Expense.date >= start_date)
+    if end_date:
+        income_stmt = income_stmt.where(Income.date <= end_date)
+        expense_stmt = expense_stmt.where(Expense.date <= end_date)
+    
+    income_total = (await session.execute(income_stmt)).scalar_one()
+    expense_total = (await session.execute(expense_stmt)).scalar_one()
+    
+    # SQLAlchemy may return numeric types; ensure Decimal
+    if not isinstance(income_total, Decimal):
+        income_total = Decimal(str(income_total))
+    if not isinstance(expense_total, Decimal):
+        expense_total = Decimal(str(expense_total))
+    
+    return {
+        "income_total": income_total,
+        "expense_total": expense_total,
+        "balance": income_total - expense_total,
+    }
+
+
+async def get_families_income_expense_totals(
+    session: AsyncSession,
+    family_ids: List[int],
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> dict:
+    """Get total income/expense/balance across multiple families (lightweight)."""
+    if not family_ids:
+        return {
+            "income_total": Decimal("0"),
+            "expense_total": Decimal("0"),
+            "balance": Decimal("0"),
+        }
+    
+    from sqlalchemy import func
+    
+    income_stmt = select(func.coalesce(func.sum(Income.amount), 0)).where(Income.family_id.in_(family_ids))
+    expense_stmt = select(func.coalesce(func.sum(Expense.amount), 0)).where(Expense.family_id.in_(family_ids))
+    
+    if start_date:
+        income_stmt = income_stmt.where(Income.date >= start_date)
+        expense_stmt = expense_stmt.where(Expense.date >= start_date)
+    if end_date:
+        income_stmt = income_stmt.where(Income.date <= end_date)
+        expense_stmt = expense_stmt.where(Expense.date <= end_date)
+    
+    income_total = (await session.execute(income_stmt)).scalar_one()
+    expense_total = (await session.execute(expense_stmt)).scalar_one()
+    
+    if not isinstance(income_total, Decimal):
+        income_total = Decimal(str(income_total))
+    if not isinstance(expense_total, Decimal):
+        expense_total = Decimal(str(expense_total))
+    
+    return {
+        "income_total": income_total,
+        "expense_total": expense_total,
+        "balance": income_total - expense_total,
+    }
+
+
 async def get_daily_expenses(
     session: AsyncSession,
     entity_id: int,
