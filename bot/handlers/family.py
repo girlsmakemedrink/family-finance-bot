@@ -1,6 +1,7 @@
 """Family management handlers for creating and joining families."""
 
 import logging
+from decimal import Decimal
 from urllib.parse import quote
 from typing import Optional
 
@@ -32,6 +33,7 @@ from bot.utils.constants import (
     MSG_WITH_FAMILIES,
 )
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.formatters import format_amount
 from bot.utils.keyboards import add_navigation_buttons, get_main_menu_keyboard, get_home_button
 from bot.utils.message_utils import (
     MessageHandler as MsgHandler,
@@ -489,6 +491,43 @@ async def cancel_conversation(
         if families:
             families_list = format_families_list(families)
             welcome_message += MSG_WITH_FAMILIES.format(families_list=families_list)
+            
+            # Add family balance block
+            family_ids = [f.id for f in families]
+            selected_id = context.user_data.get("selected_family_id")
+            
+            if selected_id in family_ids:
+                selected_family = next((f for f in families if f.id == selected_id), None)
+                label = selected_family.name if selected_family else "Семья"
+                totals = await crud.get_family_income_expense_totals(session, int(selected_id))
+            elif len(family_ids) == 1:
+                label = families[0].name
+                totals = await crud.get_family_income_expense_totals(session, int(family_ids[0]))
+            else:
+                label = "Все семьи"
+                totals = await crud.get_families_income_expense_totals(session, family_ids)
+            
+            income_total: Decimal = totals.get("income_total", Decimal("0"))
+            expense_total: Decimal = totals.get("expense_total", Decimal("0"))
+            balance: Decimal = totals.get("balance", income_total - expense_total)
+
+            total_flow = income_total + expense_total
+            if total_flow > 0:
+                income_pct = float((income_total / total_flow) * 100)
+                expense_pct = 100.0 - income_pct
+                income_line = f"📈 Доходы: {format_amount(income_total)} ({income_pct:.0f}%)"
+                expense_line = f"📉 Расходы: {format_amount(expense_total)} ({expense_pct:.0f}%)"
+            else:
+                income_line = f"📈 Доходы: {format_amount(income_total)}"
+                expense_line = f"📉 Расходы: {format_amount(expense_total)}"
+            
+            welcome_message += (
+                "\n\n"
+                f"📌 <b>Баланс: {label}</b>\n"
+                f"{income_line}\n"
+                f"{expense_line}\n"
+                f"💰 Баланс: {format_amount(balance)}"
+            )
         else:
             welcome_message += MSG_WITHOUT_FAMILIES
         

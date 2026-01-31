@@ -1,6 +1,7 @@
 """Start command handler with user registration."""
 
 import logging
+from decimal import Decimal
 from typing import Optional, Tuple
 
 from telegram import Update
@@ -17,6 +18,7 @@ from bot.utils.constants import (
 from bot.utils.keyboards import get_main_menu_keyboard
 from bot.utils.message_utils import UserDataExtractor, format_families_list
 from bot.utils.navigation import NavigationManager
+from bot.utils.formatters import format_amount
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,70 @@ def _save_user_to_context(context: ContextTypes.DEFAULT_TYPE, user_id: int, tele
     context.user_data['telegram_id'] = telegram_id
 
 
+def _pick_family_scope_for_main_menu(context: ContextTypes.DEFAULT_TYPE, families) -> tuple[str, Optional[int], str, list[int]]:
+    """Pick which family scope to show in main menu balance block.
+    
+    Priority:
+    - selected_family_id (if still available)
+    - the only family (if exactly one)
+    - all families (aggregate)
+    
+    Returns:
+        (scope_kind, family_id, label, family_ids)
+    """
+    family_ids = [f.id for f in families] if families else []
+    selected_id = context.user_data.get("selected_family_id")
+    
+    if selected_id in family_ids:
+        selected_family = next((f for f in families if f.id == selected_id), None)
+        label = selected_family.name if selected_family else "Семья"
+        return ("single", int(selected_id), label, family_ids)
+    
+    if len(family_ids) == 1:
+        return ("single", int(family_ids[0]), families[0].name, family_ids)
+    
+    return ("all", None, "Все семьи", family_ids)
+
+
+async def _build_family_balance_block(
+    session,
+    context: ContextTypes.DEFAULT_TYPE,
+    families,
+) -> str:
+    """Build 'family balance' block for main menu."""
+    if not families:
+        return ""
+    
+    scope_kind, family_id, label, family_ids = _pick_family_scope_for_main_menu(context, families)
+    
+    if scope_kind == "single" and family_id is not None:
+        totals = await crud.get_family_income_expense_totals(session, family_id)
+    else:
+        totals = await crud.get_families_income_expense_totals(session, family_ids)
+    
+    income_total: Decimal = totals.get("income_total", Decimal("0"))
+    expense_total: Decimal = totals.get("expense_total", Decimal("0"))
+    balance: Decimal = totals.get("balance", income_total - expense_total)
+
+    total_flow = income_total + expense_total
+    if total_flow > 0:
+        income_pct = float((income_total / total_flow) * 100)
+        expense_pct = 100.0 - income_pct
+        income_line = f"📈 Доходы: {format_amount(income_total)} ({income_pct:.0f}%)"
+        expense_line = f"📉 Расходы: {format_amount(expense_total)} ({expense_pct:.0f}%)"
+    else:
+        income_line = f"📈 Доходы: {format_amount(income_total)}"
+        expense_line = f"📉 Расходы: {format_amount(expense_total)}"
+    
+    return (
+        "\n\n"
+        f"📌 <b>Баланс: {label}</b>\n"
+        f"{income_line}\n"
+        f"{expense_line}\n"
+        f"💰 Баланс: {format_amount(balance)}"
+    )
+
+
 async def _process_start_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -145,6 +211,9 @@ async def _process_start_command(
             families,
             is_new_user and not is_callback
         )
+
+        # Add family balance block (if any family exists)
+        welcome_message += await _build_family_balance_block(session, context, families)
         
         # Get appropriate keyboard
         reply_markup = get_main_menu_keyboard(has_families=bool(families))
