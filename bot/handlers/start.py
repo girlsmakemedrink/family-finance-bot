@@ -1,6 +1,7 @@
 """Start command handler with user registration."""
 
 import logging
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, Tuple
 
@@ -129,13 +130,29 @@ async def _build_family_balance_block(
     """Build 'family balance' block for main menu."""
     if not families:
         return ""
+
+    # Current month range: [1st day 00:00, last moment of current month]
+    now = datetime.now()
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    next_month = (start_of_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    end_of_month = next_month - timedelta(microseconds=1)
     
     scope_kind, family_id, label, family_ids = _pick_family_scope_for_main_menu(context, families)
     
     if scope_kind == "single" and family_id is not None:
-        totals = await crud.get_family_income_expense_totals(session, family_id)
+        totals = await crud.get_family_income_expense_totals(
+            session,
+            family_id,
+            start_date=start_of_month,
+            end_date=end_of_month,
+        )
     else:
-        totals = await crud.get_families_income_expense_totals(session, family_ids)
+        totals = await crud.get_families_income_expense_totals(
+            session,
+            family_ids,
+            start_date=start_of_month,
+            end_date=end_of_month,
+        )
     
     income_total: Decimal = totals.get("income_total", Decimal("0"))
     expense_total: Decimal = totals.get("expense_total", Decimal("0"))

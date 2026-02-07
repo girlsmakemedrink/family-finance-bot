@@ -1018,7 +1018,11 @@ async def stats_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 stats_handler = ConversationHandler(
     entry_points=[
         CommandHandler("stats", stats_start),
-        CallbackQueryHandler(stats_start, pattern=f"^{CallbackPattern.STATS_START}$")
+        CallbackQueryHandler(stats_start, pattern=f"^{CallbackPattern.STATS_START}$"),
+        # If user returned here via generic "nav_back", the conversation is ended,
+        # but the type-selection keyboard is still shown. Allow re-entry directly
+        # from these buttons so switches (personal <-> family) always work.
+        CallbackQueryHandler(stats_select_type, pattern="^stats_type_(personal|family)$"),
     ],
     states={
         ConversationState.SELECT_TYPE: [

@@ -115,6 +115,10 @@ class FamilyFinanceBot:
         from bot.handlers.middleware import enhanced_error_handler
         from bot.handlers.navigation import navigation_back_callback_handler
         from bot.handlers.quick_expense import quick_expense_handler
+        from bot.handlers.recent_operations import (
+            recent_operations_callback_handler,
+            recent_operations_command_handler,
+        )
         from bot.handlers.search import search_handler
         from bot.handlers.settings import (
             currency_selection_handler,
@@ -143,6 +147,7 @@ class FamilyFinanceBot:
         self.application.add_handler(family_settings_handler_cmd)
         self.application.add_handler(about_handler)
         self.application.add_handler(categories_handler)
+        self.application.add_handler(recent_operations_command_handler)
         
         # Register conversation handlers (must be before callback handlers)
         self.application.add_handler(create_family_handler)
@@ -264,6 +269,9 @@ class FamilyFinanceBot:
         self.application.add_handler(confirm_leave_family_handler)
         self.application.add_handler(family_delete_handler)
         self.application.add_handler(confirm_delete_family_handler)
+
+        # Register recent operations callback handler
+        self.application.add_handler(recent_operations_callback_handler)
         
         # Register start callback handler
         self.application.add_handler(start_callback_handler)
