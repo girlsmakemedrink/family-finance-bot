@@ -1,6 +1,7 @@
 """Family management handlers for creating and joining families."""
 
 import logging
+from datetime import datetime, timedelta
 from decimal import Decimal
 from urllib.parse import quote
 from typing import Optional
@@ -494,19 +495,39 @@ async def cancel_conversation(
             welcome_message += MSG_WITH_FAMILIES.format(families_list=families_list)
             
             # Add family balance block
+            now = datetime.now()
+            start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            next_month = (start_of_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+            end_of_month = next_month - timedelta(microseconds=1)
+
             family_ids = [f.id for f in families]
             selected_id = context.user_data.get("selected_family_id")
             
             if selected_id in family_ids:
                 selected_family = next((f for f in families if f.id == selected_id), None)
                 label = selected_family.name if selected_family else "Семья"
-                totals = await crud.get_family_income_expense_totals(session, int(selected_id))
+                totals = await crud.get_family_income_expense_totals(
+                    session,
+                    int(selected_id),
+                    start_date=start_of_month,
+                    end_date=end_of_month,
+                )
             elif len(family_ids) == 1:
                 label = families[0].name
-                totals = await crud.get_family_income_expense_totals(session, int(family_ids[0]))
+                totals = await crud.get_family_income_expense_totals(
+                    session,
+                    int(family_ids[0]),
+                    start_date=start_of_month,
+                    end_date=end_of_month,
+                )
             else:
                 label = "Все семьи"
-                totals = await crud.get_families_income_expense_totals(session, family_ids)
+                totals = await crud.get_families_income_expense_totals(
+                    session,
+                    family_ids,
+                    start_date=start_of_month,
+                    end_date=end_of_month,
+                )
             
             income_total: Decimal = totals.get("income_total", Decimal("0"))
             expense_total: Decimal = totals.get("expense_total", Decimal("0"))

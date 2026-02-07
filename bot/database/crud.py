@@ -1140,6 +1140,80 @@ async def create_income(
         raise
 
 
+async def get_recent_user_operations(
+    session: AsyncSession,
+    user_id: int,
+    family_ids: Optional[List[int]] = None,
+    limit: int = 10,
+) -> List[Dict]:
+    """Get recent operations (expenses + incomes) created by user.
+
+    Args:
+        session: Database session
+        user_id: User ID
+        family_ids: Optional list of family IDs to restrict operations
+        limit: Max operations to return
+
+    Returns:
+        List of dicts with unified operation fields
+    """
+    from sqlalchemy import literal, union_all
+
+    try:
+        expense_query = (
+            select(
+                Expense.id.label("id"),
+                literal("expense").label("op_type"),
+                Expense.amount.label("amount"),
+                Expense.date.label("date"),
+                Expense.description.label("description"),
+                Category.name.label("category_name"),
+                Category.icon.label("category_icon"),
+                Family.name.label("family_name"),
+                Expense.family_id.label("family_id"),
+            )
+            .join(Category, Expense.category_id == Category.id)
+            .join(Family, Expense.family_id == Family.id)
+            .where(Expense.user_id == user_id)
+        )
+
+        income_query = (
+            select(
+                Income.id.label("id"),
+                literal("income").label("op_type"),
+                Income.amount.label("amount"),
+                Income.date.label("date"),
+                Income.description.label("description"),
+                Category.name.label("category_name"),
+                Category.icon.label("category_icon"),
+                Family.name.label("family_name"),
+                Income.family_id.label("family_id"),
+            )
+            .join(Category, Income.category_id == Category.id)
+            .join(Family, Income.family_id == Family.id)
+            .where(Income.user_id == user_id)
+        )
+
+        if family_ids:
+            expense_query = expense_query.where(Expense.family_id.in_(family_ids))
+            income_query = income_query.where(Income.family_id.in_(family_ids))
+
+        combined = union_all(expense_query, income_query).subquery("recent_ops")
+
+        query = (
+            select(combined)
+            .order_by(combined.c.date.desc())
+            .limit(limit)
+        )
+
+        result = await session.execute(query)
+        rows = result.mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Error getting recent operations for user_id {user_id}: {e}", exc_info=True)
+        raise
+
+
 async def get_family_expenses(
     session: AsyncSession,
     family_id: int,

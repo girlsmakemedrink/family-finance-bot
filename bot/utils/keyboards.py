@@ -102,6 +102,7 @@ def get_main_menu_keyboard(has_families: bool = False) -> InlineKeyboardMarkup:
         buttons = [
             [("➕ Добавить расход", "add_expense"), ("➕ Добавить доход", "add_income")],
             [("📊 Статистика", "stats_start"), ("🏷️ Категории", "categories")],
+            [("🕘 Мои последние операции", "recent_ops")],
             [("👨‍👩‍👧‍👦 Мои семьи", "my_families"), ("➕ Создать семью", "create_family")],
             [("🔗 Присоединиться", "join_family"), ("⚙️ Настройки", "settings")],
             [("❓ Помощь", "help")]
