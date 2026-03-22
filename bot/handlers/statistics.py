@@ -16,12 +16,22 @@ from telegram.ext import (
 )
 
 from bot.database import crud, get_db
-from bot.utils.formatters import format_amount, format_date
+from bot.utils.formatters import format_amount, format_date, format_month_year
 from bot.utils.charts import create_category_chart
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.helpers import (
+    answer_query_safely as shared_answer_query_safely,
+    end_conversation_silently,
+    end_conversation_and_route,
+    extract_id_from_callback as shared_extract_id_from_callback,
+    get_user_id,
+    handle_db_operation as shared_handle_db_operation,
+)
 from bot.utils.keyboards import add_navigation_buttons, get_back_button, get_home_button
 
 logger = logging.getLogger(__name__)
+
+# Backward-compatibility alias for older tests/import paths.
+get_session = get_db
 
 
 # ============================================================================
@@ -54,6 +64,12 @@ class CallbackPattern:
     STATS_BACK = "stats_back"
     STATS_CANCEL = "stats_cancel"
     NAV_BACK = "nav_back"
+
+
+MAIN_NAV_PATTERN_STATS_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|quick_expense|"
+    "search|my_families|create_family|join_family|family_settings)$"
+)
 
 
 class StatsType:
@@ -162,11 +178,7 @@ class StatsData:
 
 async def answer_query_safely(query) -> None:
     """Answer callback query safely, ignoring errors."""
-    if query:
-        try:
-            await query.answer()
-        except Exception as e:
-            logger.debug(f"Failed to answer query: {e}")
+    await shared_answer_query_safely(query)
 
 
 def calculate_date_range(year: int, month: Optional[int] = None) -> Tuple[datetime, datetime]:
@@ -203,49 +215,19 @@ def format_period_name(year: int, month: Optional[int] = None) -> str:
         Formatted period name
     """
     if month:
-        month_names = {
-            1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-            5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-            9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
-        }
-        return f"{month_names[month]} {year}"
+        return format_month_year(month, year)
     else:
         return f"{year} год"
 
 
 def extract_id_from_callback(callback_data: str) -> int:
     """Extract numeric ID from callback data."""
-    return int(callback_data.split('_')[-1])
+    return shared_extract_id_from_callback(callback_data)
 
 
 async def handle_db_operation(operation, error_message: str):
-    """Handle database operations with error handling.
-    
-    Args:
-        operation: Async function to execute
-        error_message: Error message to log on failure
-        
-    Returns:
-        Result of operation or None on error
-    """
-    result = None
-    async for session in get_db():
-        try:
-            result = await operation(session)
-            # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
-                result_list = list(result)
-                for obj in result_list:
-                    if hasattr(obj, '__dict__'):
-                        for key in obj.__dict__.keys():
-                            getattr(obj, key, None)
-                result = result_list
-        except Exception as e:
-            logger.error(f"{error_message}: {e}", exc_info=True)
-            result = None
-        finally:
-            break
-    return result
+    """Handle database operations with error handling."""
+    return await shared_handle_db_operation(operation, error_message)
 
 
 # ============================================================================
@@ -410,6 +392,23 @@ def format_detailed_statistics_message(
 
 class KeyboardBuilder:
     """Builder class for creating keyboards."""
+
+    @staticmethod
+    def _with_navigation(
+        keyboard: List[List[InlineKeyboardButton]],
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        current_state: str,
+        show_back: bool = True,
+    ) -> InlineKeyboardMarkup:
+        """Attach navigation buttons and wrap as inline keyboard markup."""
+        keyboard = add_navigation_buttons(
+            keyboard,
+            context,
+            current_state=current_state,
+            show_back=show_back,
+        )
+        return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
     def build_type_selection_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -418,8 +417,7 @@ class KeyboardBuilder:
             [InlineKeyboardButton(f"{Emoji.USER} Моя статистика", callback_data=CallbackPattern.STATS_TYPE_PERSONAL)],
             [InlineKeyboardButton(f"{Emoji.USERS} Статистика семьи", callback_data=CallbackPattern.STATS_TYPE_FAMILY)]
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state="statistics")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._with_navigation(keyboard, context, current_state="statistics")
     
     @staticmethod
     def build_family_selection_keyboard(families: list, context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -431,8 +429,7 @@ class KeyboardBuilder:
             )]
             for family in families
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state="stats_select_family")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._with_navigation(keyboard, context, current_state="stats_select_family")
     
     @staticmethod
     def build_period_type_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -441,27 +438,19 @@ class KeyboardBuilder:
             [InlineKeyboardButton(f"{Emoji.CALENDAR} По месяцам", callback_data=CallbackPattern.STATS_PERIOD_TYPE_MONTH)],
             [InlineKeyboardButton(f"{Emoji.CALENDAR} По годам", callback_data=CallbackPattern.STATS_PERIOD_TYPE_YEAR)]
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state="stats_select_period_type")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._with_navigation(keyboard, context, current_state="stats_select_period_type")
     
     @staticmethod
     def build_month_selection_keyboard(months: List[Tuple[int, int]], context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for month selection."""
-        month_names = {
-            1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-            5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-            9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
-        }
-        
         keyboard = []
         # Show last 12 months, most recent first
         for year, month in reversed(months[-12:]):
-            month_name = f"{month_names[month]} {year}"
+            month_name = format_month_year(month, year)
             callback_data = f"{CallbackPattern.STATS_MONTH_PREFIX}{year}_{month}"
             keyboard.append([InlineKeyboardButton(month_name, callback_data=callback_data)])
-        
-        keyboard = add_navigation_buttons(keyboard, context, current_state="stats_select_month")
-        return InlineKeyboardMarkup(keyboard)
+
+        return KeyboardBuilder._with_navigation(keyboard, context, current_state="stats_select_month")
     
     @staticmethod
     def build_year_selection_keyboard(years: List[int], context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -471,9 +460,8 @@ class KeyboardBuilder:
         for year in reversed(years):
             callback_data = f"{CallbackPattern.STATS_YEAR_PREFIX}{year}"
             keyboard.append([InlineKeyboardButton(str(year), callback_data=callback_data)])
-        
-        keyboard = add_navigation_buttons(keyboard, context, current_state="stats_select_year")
-        return InlineKeyboardMarkup(keyboard)
+
+        return KeyboardBuilder._with_navigation(keyboard, context, current_state="stats_select_year")
     
     @staticmethod
     def build_stats_view_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -484,8 +472,7 @@ class KeyboardBuilder:
                 InlineKeyboardButton(f"{Emoji.DOCUMENT} Детализация", callback_data=CallbackPattern.STATS_DETAILED_REPORT)
             ]
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state="stats_view")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._with_navigation(keyboard, context, current_state="stats_view")
     
     @staticmethod
     def build_detailed_view_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -493,8 +480,12 @@ class KeyboardBuilder:
         keyboard = [
             [InlineKeyboardButton(f"{Emoji.BACK} К обычной статистике", callback_data=CallbackPattern.STATS_BACK_TO_PERIOD)]
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state="stats_detailed_view", show_back=False)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._with_navigation(
+            keyboard,
+            context,
+            current_state="stats_detailed_view",
+            show_back=False,
+        )
 
 
 # ============================================================================
@@ -511,7 +502,9 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     Returns:
         Next conversation state
     """
-    query = update.callback_query
+    # In real Telegram updates, message and callback_query are mutually exclusive.
+    # Prioritizing message branch keeps compatibility with unit-test mocks.
+    query = update.callback_query if not update.message else None
     await answer_query_safely(query)
     
     user_id = await get_user_id(update, context)
@@ -1053,7 +1046,7 @@ stats_handler = ConversationHandler(
         CallbackQueryHandler(stats_cancel, pattern=f"^{CallbackPattern.STATS_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|quick_expense|search|my_families|create_family|join_family|family_settings)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_STATS_FLOW)
     ],
     allow_reentry=True,
     name="stats_conversation",

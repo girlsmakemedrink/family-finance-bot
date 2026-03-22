@@ -24,6 +24,9 @@ from bot.utils.formatters import format_amount
 
 logger = logging.getLogger(__name__)
 
+# Backward-compatibility alias for older tests/import paths.
+get_session = get_db
+
 
 # ============================================================================
 # Helper Functions
@@ -207,8 +210,7 @@ async def _process_start_command(
     # Clear navigation history when returning to start
     NavigationManager.clear_history(context)
     
-    # Work with database
-    async for session in get_db():
+    async def process_with_session(session) -> None:
         # Get or create user
         user, is_new_user = await _get_or_create_user(
             session,
@@ -270,6 +272,16 @@ async def _process_start_command(
                 f"Sent welcome message to user {user.id} "
                 f"(is_new={is_new_user}, families_count={len(families)})"
             )
+
+    # Work with database.
+    # Supports both async-generator provider (runtime) and async-context provider (legacy tests).
+    session_provider = get_session()
+    if hasattr(session_provider, "__aenter__"):
+        async with session_provider as session:
+            await process_with_session(session)
+    else:
+        async for session in session_provider:
+            await process_with_session(session)
 
 
 # ============================================================================

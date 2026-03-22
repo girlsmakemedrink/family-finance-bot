@@ -19,7 +19,14 @@ from telegram.ext import (
 
 from bot.database import crud, get_db
 from bot.utils.formatters import format_amount, format_expense
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.helpers import (
+    answer_query_safely as shared_answer_query_safely,
+    end_conversation_silently,
+    end_conversation_and_route,
+    extract_id_from_callback as shared_extract_id_from_callback,
+    get_user_id,
+    handle_db_operation as shared_handle_db_operation,
+)
 from bot.utils.keyboards import get_home_button
 
 logger = logging.getLogger(__name__)
@@ -46,6 +53,13 @@ class CallbackPattern:
     CREATE_FAMILY = "create_family"
     JOIN_FAMILY = "join_family"
     START = "start"
+
+
+MAIN_NAV_PATTERN_SEARCH_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|my_expenses|"
+    "family_expenses|my_families|create_family|join_family|family_settings|"
+    "stats_start|quick_expense)$"
+)
 
 
 class SearchType:
@@ -132,11 +146,7 @@ class SearchData:
 
 async def answer_query_safely(query) -> None:
     """Answer callback query safely."""
-    if query:
-        try:
-            await query.answer()
-        except Exception as e:
-            logger.debug(f"Failed to answer query: {e}")
+    await shared_answer_query_safely(query)
 
 
 async def send_or_edit_message(
@@ -146,39 +156,25 @@ async def send_or_edit_message(
     parse_mode: str = "HTML"
 ) -> None:
     """Send new message or edit existing one."""
+    # In real Telegram updates, message and callback_query are mutually exclusive.
+    # Prioritizing message branch improves compatibility with unit-test mocks.
+    if update.message:
+        await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        return
+
     query = update.callback_query
     if query:
         await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
 
 
 def extract_id_from_callback(callback_data: str) -> int:
     """Extract numeric ID from callback data."""
-    return int(callback_data.split('_')[-1])
+    return shared_extract_id_from_callback(callback_data)
 
 
 async def handle_db_operation(operation, error_message: str):
     """Handle database operations with error handling."""
-    result = None
-    async for session in get_db():
-        try:
-            result = await operation(session)
-            # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
-                # Force load all objects and their attributes
-                result_list = list(result)
-                for obj in result_list:
-                    if hasattr(obj, '__dict__'):
-                        for key in obj.__dict__.keys():
-                            getattr(obj, key, None)
-                result = result_list
-        except Exception as e:
-            logger.error(f"{error_message}: {e}", exc_info=True)
-            result = None
-        finally:
-            break
-    return result
+    return await shared_handle_db_operation(operation, error_message)
 
 
 # ============================================================================
@@ -278,11 +274,22 @@ class MessageBuilder:
 
 class KeyboardBuilder:
     """Builder class for creating keyboards."""
-    
+
+    @staticmethod
+    def _as_markup(buttons: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+        """Wrap button matrix into Telegram inline keyboard markup."""
+        return InlineKeyboardMarkup(buttons)
+
+    @staticmethod
+    def _with_cancel_button(buttons: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+        """Append cancel button and wrap keyboard markup."""
+        buttons.append([InlineKeyboardButton(f"{Emoji.ERROR} Отменить", callback_data=CallbackPattern.CANCEL)])
+        return KeyboardBuilder._as_markup(buttons)
+
     @staticmethod
     def build_no_families_keyboard() -> InlineKeyboardMarkup:
         """Build keyboard when user has no families."""
-        return InlineKeyboardMarkup([
+        return KeyboardBuilder._as_markup([
             [InlineKeyboardButton(f"{Emoji.PLUS} Создать семью", callback_data=CallbackPattern.CREATE_FAMILY)],
             [InlineKeyboardButton(f"{Emoji.LINK} Присоединиться к семье", callback_data=CallbackPattern.JOIN_FAMILY)]
         ])
@@ -297,13 +304,12 @@ class KeyboardBuilder:
             )]
             for family in families
         ]
-        keyboard.append([InlineKeyboardButton(f"{Emoji.ERROR} Отменить", callback_data=CallbackPattern.CANCEL)])
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._with_cancel_button(keyboard)
     
     @staticmethod
     def build_type_selection_keyboard() -> InlineKeyboardMarkup:
         """Build keyboard for search type selection."""
-        return InlineKeyboardMarkup([
+        return KeyboardBuilder._as_markup([
             [InlineKeyboardButton(f"{Emoji.NOTE} По описанию", callback_data=f"{CallbackPattern.SEARCH_TYPE_PREFIX}{SearchType.DESCRIPTION}")],
             [InlineKeyboardButton(f"{Emoji.MONEY} По сумме", callback_data=f"{CallbackPattern.SEARCH_TYPE_PREFIX}{SearchType.AMOUNT}")],
             [InlineKeyboardButton(f"{Emoji.CALENDAR} По дате", callback_data=f"{CallbackPattern.SEARCH_TYPE_PREFIX}{SearchType.DATE}")],
@@ -314,7 +320,7 @@ class KeyboardBuilder:
     @staticmethod
     def build_cancel_keyboard() -> InlineKeyboardMarkup:
         """Build keyboard with only cancel button."""
-        return InlineKeyboardMarkup([
+        return KeyboardBuilder._as_markup([
             [InlineKeyboardButton(f"{Emoji.ERROR} Отменить", callback_data=CallbackPattern.CANCEL)]
         ])
     
@@ -328,13 +334,12 @@ class KeyboardBuilder:
             )]
             for category in categories
         ]
-        keyboard.append([InlineKeyboardButton(f"{Emoji.ERROR} Отменить", callback_data=CallbackPattern.CANCEL)])
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._with_cancel_button(keyboard)
     
     @staticmethod
     def build_results_keyboard() -> InlineKeyboardMarkup:
         """Build keyboard for search results."""
-        return InlineKeyboardMarkup([
+        return KeyboardBuilder._as_markup([
             [InlineKeyboardButton(f"{Emoji.SEARCH} Новый поиск", callback_data=CallbackPattern.SEARCH)],
             [InlineKeyboardButton(f"{Emoji.HOME} Главное меню", callback_data=CallbackPattern.START)]
         ])
@@ -600,7 +605,7 @@ search_handler = ConversationHandler(
         CommandHandler('cancel', cancel_search),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_SEARCH_FLOW)
     ],
     allow_reentry=True,
     name="search_conversation",

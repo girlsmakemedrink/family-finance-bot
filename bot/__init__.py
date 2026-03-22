@@ -53,6 +53,7 @@ class FamilyFinanceBot:
             .token(self.token)
             .build()
         )
+        app = self.application
         
         # Import handlers
         from telegram.ext import CallbackQueryHandler
@@ -135,152 +136,115 @@ class FamilyFinanceBot:
         )
         from bot.handlers.start import about_handler, start_callback_handler, start_handler
         from bot.handlers.statistics import stats_handler
+
+        def register_handlers(*handlers) -> None:
+            """Register multiple handlers preserving input order."""
+            for handler in handlers:
+                app.add_handler(handler)
+
+        def register_callback_handler(callback, pattern: str) -> None:
+            """Register callback query handler by callback and pattern."""
+            app.add_handler(CallbackQueryHandler(callback, pattern=pattern))
         
         # Register navigation handler FIRST with high priority (group=-1)
         # This ensures it can end conversations before they process the callback
-        self.application.add_handler(navigation_back_callback_handler, group=-1)
+        app.add_handler(navigation_back_callback_handler, group=-1)
         
         # Register command handlers
-        self.application.add_handler(start_handler)
-        self.application.add_handler(help_handler)
-        self.application.add_handler(settings_handler)
-        self.application.add_handler(family_settings_handler_cmd)
-        self.application.add_handler(about_handler)
-        self.application.add_handler(categories_handler)
-        self.application.add_handler(recent_operations_command_handler)
+        register_handlers(
+            start_handler,
+            help_handler,
+            settings_handler,
+            family_settings_handler_cmd,
+            about_handler,
+            categories_handler,
+            recent_operations_command_handler,
+        )
         
         # Register conversation handlers (must be before callback handlers)
-        self.application.add_handler(create_family_handler)
-        self.application.add_handler(join_family_handler)
-        self.application.add_handler(add_expense_handler)
-        self.application.add_handler(add_income_handler)
-        self.application.add_handler(view_expenses_handler)
-        self.application.add_handler(family_expenses_handler)
-        self.application.add_handler(stats_handler)
-        self.application.add_handler(search_handler)
-        self.application.add_handler(quick_expense_handler)
-        self.application.add_handler(add_category_handler)
-        self.application.add_handler(edit_category_handler)
-        self.application.add_handler(delete_category_handler)
-        self.application.add_handler(family_rename_handler)
+        register_handlers(
+            create_family_handler,
+            join_family_handler,
+            add_expense_handler,
+            add_income_handler,
+            view_expenses_handler,
+            family_expenses_handler,
+            stats_handler,
+            search_handler,
+            quick_expense_handler,
+            add_category_handler,
+            edit_category_handler,
+            delete_category_handler,
+            family_rename_handler,
+        )
         
         # Register family command handlers
-        self.application.add_handler(my_families_handler_cmd)
-        self.application.add_handler(my_families_handler_callback)
-        self.application.add_handler(view_family_handler)
-        self.application.add_handler(my_families_leave_handler)
-        self.application.add_handler(my_families_confirm_leave_handler)
-        self.application.add_handler(my_families_delete_handler)
-        self.application.add_handler(my_families_confirm_delete_handler)
-        
-        # Register pagination handler
-        pagination_callback_handler = CallbackQueryHandler(
-            pagination_handler,
-            pattern="^page_(prev|next|current)$"
+        register_handlers(
+            my_families_handler_cmd,
+            my_families_handler_callback,
+            view_family_handler,
+            my_families_leave_handler,
+            my_families_confirm_leave_handler,
+            my_families_delete_handler,
+            my_families_confirm_delete_handler,
         )
-        self.application.add_handler(pagination_callback_handler)
         
-        # Register family expenses handlers
-        family_pagination_callback_handler = CallbackQueryHandler(
-            family_pagination_handler,
-            pattern="^family_page_(prev|next|current)$"
-        )
-        self.application.add_handler(family_pagination_callback_handler)
-        
-        family_grouping_callback_handler = CallbackQueryHandler(
-            family_grouping_handler,
-            pattern="^family_group_(user|category|default)$"
-        )
-        self.application.add_handler(family_grouping_callback_handler)
-        
-        # Export handlers moved to statistics section
-        # my_export_callback_handler = CallbackQueryHandler(
-        #     my_export_handler,
-        #     pattern="^my_export$"
-        # )
-        # self.application.add_handler(my_export_callback_handler)
-        
-        # CSV export removed - only HTML export is supported
-        # my_export_csv_callback_handler = CallbackQueryHandler(
-        #     my_export_csv_handler,
-        #     pattern="^my_export_csv$"
-        # )
-        # self.application.add_handler(my_export_csv_callback_handler)
-        
-        # Export handlers moved to statistics section
-        # my_export_gdocs_callback_handler = CallbackQueryHandler(
-        #     my_export_gdocs_handler,
-        #     pattern="^my_export_gdocs$"
-        # )
-        # self.application.add_handler(my_export_gdocs_callback_handler)
-        
-        # Export handlers moved to statistics section
-        # family_export_callback_handler = CallbackQueryHandler(
-        #     family_export_handler,
-        #     pattern="^family_export$"
-        # )
-        # self.application.add_handler(family_export_callback_handler)
-        
-        # CSV export removed - only HTML export is supported
-        # family_export_csv_callback_handler = CallbackQueryHandler(
-        #     family_export_csv_handler,
-        #     pattern="^family_export_csv$"
-        # )
-        # self.application.add_handler(family_export_csv_callback_handler)
-        
-        # Export handlers moved to statistics section
-        # family_export_gdocs_callback_handler = CallbackQueryHandler(
-        #     family_export_gdocs_handler,
-        #     pattern="^family_export_gdocs$"
-        # )
-        # self.application.add_handler(family_export_gdocs_callback_handler)
+        # Register pagination and family-expenses callback handlers
+        register_callback_handler(pagination_handler, "^page_(prev|next|current)$")
+        register_callback_handler(family_pagination_handler, "^family_page_(prev|next|current)$")
+        register_callback_handler(family_grouping_handler, "^family_group_(user|category|default)$")
         
         # Detailed report handlers are no longer needed as they are integrated into statistics
         
         # Register categories callback handlers
-        self.application.add_handler(show_categories_handler)
-        self.application.add_handler(categories_callback_handler)
+        register_handlers(show_categories_handler, categories_callback_handler)
         
         # Register help callback handlers
-        self.application.add_handler(help_callback_handler)
-        self.application.add_handler(help_families_handler)
-        self.application.add_handler(help_expenses_handler)
-        self.application.add_handler(help_stats_handler)
-        self.application.add_handler(help_settings_handler)
+        register_handlers(
+            help_callback_handler,
+            help_families_handler,
+            help_expenses_handler,
+            help_stats_handler,
+            help_settings_handler,
+        )
         
         # Register settings callback handlers
-        self.application.add_handler(settings_callback_handler)
-        self.application.add_handler(settings_currency_handler)
-        self.application.add_handler(currency_selection_handler)
-        self.application.add_handler(settings_timezone_handler)
-        self.application.add_handler(timezone_selection_handler)
-        self.application.add_handler(settings_date_format_handler)
-        self.application.add_handler(date_format_selection_handler)
-        self.application.add_handler(settings_monthly_summary_handler)
-        self.application.add_handler(monthly_summary_time_handler)
-        self.application.add_handler(settings_expense_notifications_handler)
+        register_handlers(
+            settings_callback_handler,
+            settings_currency_handler,
+            currency_selection_handler,
+            settings_timezone_handler,
+            timezone_selection_handler,
+            settings_date_format_handler,
+            date_format_selection_handler,
+            settings_monthly_summary_handler,
+            monthly_summary_time_handler,
+            settings_expense_notifications_handler,
+        )
         
         # Register family settings callback handlers
-        self.application.add_handler(family_settings_callback_handler)
-        self.application.add_handler(family_settings_select_handler)
-        self.application.add_handler(family_regenerate_code_handler)
-        self.application.add_handler(family_manage_members_handler)
-        self.application.add_handler(family_leave_handler)
-        self.application.add_handler(confirm_leave_family_handler)
-        self.application.add_handler(family_delete_handler)
-        self.application.add_handler(confirm_delete_family_handler)
+        register_handlers(
+            family_settings_callback_handler,
+            family_settings_select_handler,
+            family_regenerate_code_handler,
+            family_manage_members_handler,
+            family_leave_handler,
+            confirm_leave_family_handler,
+            family_delete_handler,
+            confirm_delete_family_handler,
+        )
 
         # Register recent operations callback handler
-        self.application.add_handler(recent_operations_callback_handler)
+        app.add_handler(recent_operations_callback_handler)
         
         # Register start callback handler
-        self.application.add_handler(start_callback_handler)
+        app.add_handler(start_callback_handler)
         
         # Navigation handler already registered in group=-1 at the beginning
         
         # Register enhanced error handler
-        self.application.add_error_handler(enhanced_error_handler)
-        self.application.add_error_handler(error_handler)
+        app.add_error_handler(enhanced_error_handler)
+        app.add_error_handler(error_handler)
         
         # TODO: Add inline query handlers
         

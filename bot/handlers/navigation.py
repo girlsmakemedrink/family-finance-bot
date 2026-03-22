@@ -136,3 +136,18 @@ navigation_back_callback_handler = CallbackQueryHandler(
     navigation_back_handler,
     pattern="^nav_back$"
 )
+
+
+async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Backward-compatible generic cancel handler for tests/legacy imports."""
+    from telegram.ext import ConversationHandler
+
+    context.user_data.clear()
+
+    if update.message:
+        await update.message.reply_text("Операция отменена.")
+    elif update.callback_query and update.callback_query.message:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text("Операция отменена.")
+
+    return ConversationHandler.END

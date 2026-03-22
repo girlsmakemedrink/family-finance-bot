@@ -31,15 +31,17 @@ class MessageHandler:
             Sent or edited message, or None on error
         """
         try:
-            if update.callback_query:
-                await update.callback_query.answer()
-                return await update.callback_query.edit_message_text(
+            # In real Telegram updates, message and callback_query are mutually exclusive.
+            # Prioritizing message branch keeps compatibility with unit-test mocks.
+            if update.message:
+                return await update.message.reply_text(
                     text,
                     parse_mode=parse_mode,
                     reply_markup=reply_markup
                 )
-            elif update.message:
-                return await update.message.reply_text(
+            if update.callback_query:
+                await update.callback_query.answer()
+                return await update.callback_query.edit_message_text(
                     text,
                     parse_mode=parse_mode,
                     reply_markup=reply_markup

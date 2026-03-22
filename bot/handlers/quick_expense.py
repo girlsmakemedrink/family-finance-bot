@@ -17,9 +17,16 @@ from telegram.ext import (
     filters,
 )
 
-from bot.database import crud, get_db
+from bot.database import crud
 from bot.utils.formatters import format_amount
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.helpers import (
+    answer_query_safely as shared_answer_query_safely,
+    end_conversation_silently,
+    end_conversation_and_route,
+    extract_id_from_callback as shared_extract_id_from_callback,
+    get_user_id,
+    handle_db_operation as shared_handle_db_operation,
+)
 from bot.utils.keyboards import get_home_button
 
 logger = logging.getLogger(__name__)
@@ -53,6 +60,13 @@ class CallbackPattern:
     CANCEL = "cancel"
     ADD_EXPENSE = "add_expense"
     START = "start"
+
+
+MAIN_NAV_PATTERN_QUICK_EXPENSE_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|my_expenses|"
+    "family_expenses|my_families|create_family|join_family|family_settings|"
+    "stats_start|search)$"
+)
 
 
 class ValidationLimits:
@@ -142,11 +156,7 @@ class TemplateData:
 
 async def answer_query_safely(query) -> None:
     """Answer callback query safely, ignoring errors."""
-    if query:
-        try:
-            await query.answer()
-        except Exception as e:
-            logger.debug(f"Failed to answer query: {e}")
+    await shared_answer_query_safely(query)
 
 
 async def send_or_edit_message(
@@ -156,11 +166,15 @@ async def send_or_edit_message(
     parse_mode: str = "HTML"
 ) -> None:
     """Send new message or edit existing one based on update type."""
+    # In real Telegram updates, message and callback_query are mutually exclusive.
+    # Prioritizing message branch improves compatibility with unit-test mocks.
+    if update.message:
+        await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        return
+
     query = update.callback_query
     if query:
         await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
 
 
 def create_keyboard(buttons: List[List[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
@@ -182,35 +196,8 @@ def create_navigation_keyboard() -> List[List[InlineKeyboardButton]]:
 
 
 async def handle_db_operation(operation, error_message: str):
-    """
-    Handle database operations with error handling.
-    
-    Args:
-        operation: Async function to execute
-        error_message: Error message to log on failure
-        
-    Returns:
-        Result of operation or None on error
-    """
-    result = None
-    async for session in get_db():
-        try:
-            result = await operation(session)
-            # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
-                # Force load all objects and their attributes
-                result_list = list(result)
-                for obj in result_list:
-                    if hasattr(obj, '__dict__'):
-                        for key in obj.__dict__.keys():
-                            getattr(obj, key, None)
-                result = result_list
-        except Exception as e:
-            logger.error(f"{error_message}: {e}")
-            result = None
-        finally:
-            break
-    return result
+    """Handle database operations with error handling."""
+    return await shared_handle_db_operation(operation, error_message)
 
 
 def validate_amount(amount_str: str) -> tuple[Optional[Decimal], Optional[str]]:
@@ -268,7 +255,7 @@ def validate_description(description: str) -> tuple[Optional[str], Optional[str]
 
 def extract_id_from_callback(callback_data: str) -> int:
     """Extract numeric ID from callback data."""
-    return int(callback_data.split('_')[-1])
+    return shared_extract_id_from_callback(callback_data)
 
 
 # ============================================================================
@@ -390,6 +377,12 @@ class MessageBuilder:
 
 class KeyboardBuilder:
     """Builder class for creating keyboards."""
+
+    @staticmethod
+    def _with_cancel_button(buttons: List[List[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+        """Append cancel button to keyboard and wrap as markup."""
+        buttons.append([create_cancel_button()])
+        return create_keyboard(buttons)
     
     @staticmethod
     def build_no_families_keyboard() -> InlineKeyboardMarkup:
@@ -410,8 +403,7 @@ class KeyboardBuilder:
             )]
             for family in families
         ]
-        buttons.append([create_cancel_button()])
-        return create_keyboard(buttons)
+        return KeyboardBuilder._with_cancel_button(buttons)
     
     @staticmethod
     def build_template_menu_keyboard(templates: List) -> InlineKeyboardMarkup:
@@ -451,8 +443,7 @@ class KeyboardBuilder:
             )]
             for category in categories
         ]
-        buttons.append([create_cancel_button()])
-        return create_keyboard(buttons)
+        return KeyboardBuilder._with_cancel_button(buttons)
     
     @staticmethod
     def build_description_input_keyboard() -> InlineKeyboardMarkup:
@@ -464,8 +455,8 @@ class KeyboardBuilder:
         return create_keyboard(buttons)
     
     @staticmethod
-    def build_expense_created_keyboard(template_id: int) -> InlineKeyboardMarkup:
-        """Build keyboard after expense creation."""
+    def _build_template_reuse_keyboard(template_id: int) -> InlineKeyboardMarkup:
+        """Build common keyboard with reuse-template action + navigation."""
         buttons = [
             [InlineKeyboardButton(
                 f"{Emoji.PLUS} Использовать шаблон",
@@ -474,18 +465,16 @@ class KeyboardBuilder:
             *create_navigation_keyboard()
         ]
         return create_keyboard(buttons)
+
+    @staticmethod
+    def build_expense_created_keyboard(template_id: int) -> InlineKeyboardMarkup:
+        """Build keyboard after expense creation."""
+        return KeyboardBuilder._build_template_reuse_keyboard(template_id)
     
     @staticmethod
     def build_template_created_keyboard(template_id: int) -> InlineKeyboardMarkup:
         """Build keyboard after template creation."""
-        buttons = [
-            [InlineKeyboardButton(
-                f"{Emoji.PLUS} Использовать шаблон",
-                callback_data=f"{CallbackPattern.USE_TEMPLATE_PREFIX}{template_id}"
-            )],
-            *create_navigation_keyboard()
-        ]
-        return create_keyboard(buttons)
+        return KeyboardBuilder._build_template_reuse_keyboard(template_id)
     
     @staticmethod
     def build_delete_menu_keyboard(templates: List) -> InlineKeyboardMarkup:
@@ -497,8 +486,7 @@ class KeyboardBuilder:
             )]
             for template in templates
         ]
-        buttons.append([create_cancel_button()])
-        return create_keyboard(buttons)
+        return KeyboardBuilder._with_cancel_button(buttons)
     
     @staticmethod
     def build_simple_cancel_keyboard() -> InlineKeyboardMarkup:
@@ -974,7 +962,7 @@ quick_expense_handler = ConversationHandler(
         CommandHandler('cancel', cancel_quick_expense),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_QUICK_EXPENSE_FLOW)
     ],
     allow_reentry=True,
     name="quick_expense_conversation",

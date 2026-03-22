@@ -47,8 +47,22 @@ from bot.utils.message_utils import (
 
 logger = logging.getLogger(__name__)
 
+# Backward-compatibility alias for older tests/import paths.
+get_session = get_db
+
 # Conversation states
 FAMILY_NAME, INVITE_CODE = range(2)
+
+MAIN_NAV_PATTERN_CREATE_FAMILY_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|my_expenses|"
+    "family_expenses|my_families|join_family|family_settings|stats_start|"
+    "quick_expense|search)$"
+)
+MAIN_NAV_PATTERN_JOIN_FAMILY_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|my_expenses|"
+    "family_expenses|my_families|create_family|family_settings|stats_start|"
+    "quick_expense|search)$"
+)
 
 
 # ============================================================================
@@ -230,6 +244,21 @@ async def _join_family_in_db(session, invite_code: str, user_id: int) -> Optiona
     return family
 
 
+def _navigation_markup(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    current_state: str,
+) -> InlineKeyboardMarkup:
+    """Create inline markup with standard navigation buttons."""
+    keyboard = add_navigation_buttons([], context, current_state=current_state)
+    return _markup(keyboard)
+
+
+def _markup(keyboard: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+    """Wrap button matrix into Telegram inline keyboard markup."""
+    return InlineKeyboardMarkup(keyboard)
+
+
 # ============================================================================
 # Create Family Handlers
 # ============================================================================
@@ -252,8 +281,7 @@ async def create_family_start(
         return ConversationHandler.END
     
     message_text = _create_family_start_message()
-    keyboard = add_navigation_buttons([], context, current_state="create_family")
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _navigation_markup(context, current_state="create_family")
     
     await MsgHandler.send_or_edit(update, message_text, reply_markup=reply_markup)
     
@@ -315,7 +343,7 @@ async def create_family_name_received(
                 [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = _markup(keyboard)
             
             await update.message.reply_text(
                 success_message,
@@ -356,8 +384,7 @@ async def join_family_start(
         return ConversationHandler.END
     
     message_text = _create_join_family_message()
-    keyboard = add_navigation_buttons([], context, current_state="join_family")
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _navigation_markup(context, current_state="join_family")
     
     await MsgHandler.send_or_edit(update, message_text, reply_markup=reply_markup)
     
@@ -436,7 +463,7 @@ async def join_family_code_received(
                 [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = _markup(keyboard)
             
             await update.message.reply_text(
                 success_message,
@@ -453,6 +480,11 @@ async def join_family_code_received(
             )
     
     return ConversationHandler.END
+
+
+# Backward-compatible aliases for legacy tests/imports.
+create_family_name = create_family_name_received
+join_family_code = join_family_code_received
 
 
 # ============================================================================
@@ -689,7 +721,7 @@ async def my_families_command(
                 keyboard.append([InlineKeyboardButton("➕ Создать еще семью", callback_data="create_family")])
             
             keyboard = add_navigation_buttons(keyboard, context, current_state="my_families")
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = _markup(keyboard)
             
             await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
             
@@ -776,7 +808,7 @@ async def view_family_details(
                 InlineKeyboardButton("◀️ Назад к списку", callback_data="my_families")
             ])
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = _markup(keyboard)
             
             await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
             
@@ -839,7 +871,7 @@ async def leave_family_confirm(
                 ]
             ]
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = _markup(keyboard)
             
             await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
             
@@ -897,7 +929,7 @@ async def leave_family_execute(
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
                 ]
                 
-                reply_markup = InlineKeyboardMarkup(keyboard)
+                reply_markup = _markup(keyboard)
                 
                 await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
                 
@@ -979,7 +1011,7 @@ async def delete_family_confirm(
                 ]
             ]
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = _markup(keyboard)
             
             await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
             
@@ -1045,7 +1077,7 @@ async def delete_family_execute(
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
                 ]
                 
-                reply_markup = InlineKeyboardMarkup(keyboard)
+                reply_markup = _markup(keyboard)
                 
                 await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
                 
@@ -1084,7 +1116,7 @@ create_family_handler = ConversationHandler(
         CallbackQueryHandler(cancel_conversation, pattern="^cancel_create_family$"),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_CREATE_FAMILY_FLOW)
     ],
     allow_reentry=True,
     name="create_family_conversation",
@@ -1110,7 +1142,7 @@ join_family_handler = ConversationHandler(
         CallbackQueryHandler(cancel_conversation, pattern="^cancel_join_family$"),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_JOIN_FAMILY_FLOW)
     ],
     allow_reentry=True,
     name="join_family_conversation",
