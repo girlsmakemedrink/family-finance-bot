@@ -9,13 +9,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
 from bot.database import crud, get_db
-from bot.utils.formatters import format_amount, format_date
+from bot.utils.formatters import format_amount, format_date, format_month_year
 from bot.utils.charts import create_text_bar
 from bot.utils.helpers import get_user_id
 from bot.utils.keyboards import get_home_button
 from bot.handlers.expenses import CallbackPattern, ViewData
 
 logger = logging.getLogger(__name__)
+TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 
 
 # ============================================================================
@@ -31,8 +32,6 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "HTML",
         parse_mode: Parse mode (default: HTML)
         reply_markup: Optional keyboard markup (will be attached to the last message part)
     """
-    MAX_MESSAGE_LENGTH = 4096
-    
     # Get the chat
     if update.callback_query:
         chat_id = update.callback_query.message.chat_id
@@ -41,7 +40,7 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "HTML",
         chat_id = update.effective_chat.id
         bot = update.get_bot()
     
-    if len(text) <= MAX_MESSAGE_LENGTH:
+    if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:
         await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_markup=reply_markup)
         return
     
@@ -50,7 +49,7 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "HTML",
     current_part = ""
     
     for line in text.split('\n'):
-        if len(current_part) + len(line) + 1 > MAX_MESSAGE_LENGTH:
+        if len(current_part) + len(line) + 1 > TELEGRAM_MAX_MESSAGE_LENGTH:
             if current_part:
                 parts.append(current_part)
             current_part = line + '\n'
@@ -65,6 +64,122 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "HTML",
         # Add keyboard only to the last part
         markup = reply_markup if i == len(parts) - 1 else None
         await bot.send_message(chat_id=chat_id, text=part.strip(), parse_mode=parse_mode, reply_markup=markup)
+
+
+def _as_markup(keyboard: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+    """Wrap button matrix into Telegram inline keyboard markup."""
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_report_type_keyboard() -> InlineKeyboardMarkup:
+    """Build keyboard for choosing report period granularity."""
+    keyboard = [
+        [InlineKeyboardButton("📅 Отчет за месяц", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}month")],
+        [InlineKeyboardButton("📆 Отчет за год", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}year")],
+        [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+    ]
+    return _as_markup(keyboard)
+
+
+async def _get_available_expense_periods(
+    family_id: int,
+    user_id: Optional[int] = None,
+) -> tuple[list, list]:
+    """Get unique months and years that have expenses."""
+    from sqlalchemy import extract, select
+    from bot.database.models import Expense
+
+    async def get_expense_periods(session):
+        query_months = (
+            select(
+                extract('year', Expense.date).label('year'),
+                extract('month', Expense.date).label('month')
+            )
+            .where(Expense.family_id == family_id)
+            .group_by('year', 'month')
+            .order_by('year', 'month')
+        )
+        if user_id is not None:
+            query_months = query_months.where(Expense.user_id == user_id)
+
+        months_result = await session.execute(query_months)
+        months = months_result.all()
+
+        query_years = (
+            select(extract('year', Expense.date).label('year'))
+            .where(Expense.family_id == family_id)
+            .group_by('year')
+            .order_by('year')
+        )
+        if user_id is not None:
+            query_years = query_years.where(Expense.user_id == user_id)
+
+        years_result = await session.execute(query_years)
+        years = years_result.scalars().all()
+
+        return months, years
+
+    async for session in get_db():
+        return await get_expense_periods(session)
+
+    return [], []
+
+
+async def _resolve_report_scope(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Resolve current report scope (family/personal) and context payload."""
+    is_family = context.user_data.get('dr_is_family', False)
+    if is_family:
+        return is_family, None, ViewData.from_context(context, prefix="family_view")
+    return is_family, await get_user_id(update, context), ViewData.from_context(context)
+
+
+async def _fetch_report_summary(
+    is_family: bool,
+    user_id: Optional[int],
+    family_id: int,
+    start_date: datetime,
+    end_date: datetime,
+) -> dict:
+    """Load report summary for family or personal scope."""
+    async for session in get_db():
+        if is_family:
+            return await crud.get_family_expenses_detailed_report(
+                session,
+                family_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        return await crud.get_user_expenses_detailed_monthly_report(
+            session,
+            user_id,
+            family_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    return {}
+
+
+async def _send_report_result(
+    update: Update,
+    query,
+    summary: dict,
+    period_name: str,
+) -> None:
+    """Render and send report message with home keyboard."""
+    message = format_detailed_report(summary, period_name)
+    await _delete_query_message_safely(query)
+
+    await send_long_message(update, message, reply_markup=get_home_button())
+
+
+async def _delete_query_message_safely(query) -> None:
+    """Delete callback message safely when possible."""
+    try:
+        await query.message.delete()
+    except Exception:
+        return
 
 
 def format_detailed_report(summary_data: dict, period_name: str) -> str:
@@ -168,45 +283,11 @@ async def detailed_report_select_type(update: Update, context: ContextTypes.DEFA
         await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
         return
     
-    # Get available months and years from expenses
-    async def get_expense_periods(session):
-        """Get unique months and years that have expenses."""
-        from sqlalchemy import select, func, extract
-        from bot.database.models import Expense
-        
-        # Get unique year-month combinations
-        query_months = (
-            select(
-                extract('year', Expense.date).label('year'),
-                extract('month', Expense.date).label('month')
-            )
-            .where(Expense.user_id == user_id)
-            .where(Expense.family_id == view_data.family_id)
-            .group_by('year', 'month')
-            .order_by('year', 'month')
-        )
-        
-        result = await session.execute(query_months)
-        months = result.all()
-        
-        # Get unique years
-        query_years = (
-            select(extract('year', Expense.date).label('year'))
-            .where(Expense.user_id == user_id)
-            .where(Expense.family_id == view_data.family_id)
-            .group_by('year')
-            .order_by('year')
-        )
-        
-        result = await session.execute(query_years)
-        years = result.scalars().all()
-        
-        return months, years
-    
     try:
-        async for session in get_db():
-            months, years = await get_expense_periods(session)
-            break
+        months, years = await _get_available_expense_periods(
+            family_id=view_data.family_id,
+            user_id=user_id,
+        )
     except Exception as e:
         logger.error(f"Error getting expense periods: {e}")
         await query.answer("❌ Ошибка при получении данных", show_alert=True)
@@ -216,19 +297,11 @@ async def detailed_report_select_type(update: Update, context: ContextTypes.DEFA
     context.user_data['dr_months'] = [(int(m.year), int(m.month)) for m in months]
     context.user_data['dr_years'] = [int(y) for y in years]
     
-    # Build keyboard
-    keyboard = [
-        [InlineKeyboardButton("📅 Отчет за месяц", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}month")],
-        [InlineKeyboardButton("📆 Отчет за год", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}year")],
-        [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)],
-        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-    ]
-    
     await query.edit_message_text(
         "📊 <b>Выберите тип отчета:</b>\n\n"
         f"Доступно месяцев с расходами: {len(months)}\n"
         f"Доступно лет с расходами: {len(years)}",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=_build_report_type_keyboard(),
         parse_mode="HTML"
     )
 
@@ -244,17 +317,10 @@ async def detailed_report_select_month(update: Update, context: ContextTypes.DEF
         await query.answer("❌ Нет доступных месяцев с расходами", show_alert=True)
         return
     
-    # Month names
-    month_names = {
-        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
-    }
-    
     # Build keyboard with recent months first (reversed)
     keyboard = []
     for year, month in reversed(months_data[-12:]):  # Show last 12 months max
-        month_name = f"{month_names[month]} {year}"
+        month_name = format_month_year(month, year)
         callback_data = f"{CallbackPattern.DETAILED_REPORT_MONTH_PREFIX}{year}_{month}"
         keyboard.append([InlineKeyboardButton(month_name, callback_data=callback_data)])
     
@@ -266,7 +332,7 @@ async def detailed_report_select_month(update: Update, context: ContextTypes.DEF
     await query.edit_message_text(
         "📅 <b>Выберите месяц для отчета:</b>\n\n"
         "Показаны последние 12 месяцев с расходами",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=_as_markup(keyboard),
         parse_mode="HTML"
     )
 
@@ -295,7 +361,7 @@ async def detailed_report_select_year(update: Update, context: ContextTypes.DEFA
     
     await query.edit_message_text(
         "📆 <b>Выберите год для отчета:</b>",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=_as_markup(keyboard),
         parse_mode="HTML"
     )
 
@@ -310,15 +376,7 @@ async def generate_monthly_report(update: Update, context: ContextTypes.DEFAULT_
     year_month = callback_data.replace(CallbackPattern.DETAILED_REPORT_MONTH_PREFIX, "")
     year, month = map(int, year_month.split('_'))
     
-    # Check if it's family or personal report
-    is_family = context.user_data.get('dr_is_family', False)
-    
-    if is_family:
-        view_data = ViewData.from_context(context, prefix="family_view")
-        user_id = None  # Not needed for family reports
-    else:
-        user_id = await get_user_id(update, context)
-        view_data = ViewData.from_context(context)
+    is_family, user_id, view_data = await _resolve_report_scope(update, context)
     
     if not view_data.family_id:
         await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
@@ -332,46 +390,17 @@ async def generate_monthly_report(update: Update, context: ContextTypes.DEFAULT_
         end_date = datetime(year, month + 1, 1) - timedelta(days=1)
     
     # Month name
-    month_names = {
-        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
-    }
-    period_name = f"{month_names[month]} {year}"
+    period_name = format_month_year(month, year)
     
     try:
-        async for session in get_db():
-            if is_family:
-                # For family reports, get all expenses for the family
-                summary = await crud.get_family_expenses_detailed_report(
-                    session,
-                    view_data.family_id,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-            else:
-                # For personal reports, get user expenses
-                summary = await crud.get_user_expenses_detailed_monthly_report(
-                    session,
-                    user_id,
-                    view_data.family_id,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-            break
-        
-        # Format and send report
-        message = format_detailed_report(summary, period_name)
-        
-        # Delete the selection message
-        try:
-            await query.message.delete()
-        except:
-            pass
-        
-        # Send detailed report with home button
-        keyboard = get_home_button()
-        await send_long_message(update, message, reply_markup=keyboard)
+        summary = await _fetch_report_summary(
+            is_family,
+            user_id,
+            view_data.family_id,
+            start_date,
+            end_date,
+        )
+        await _send_report_result(update, query, summary, period_name)
         
         logger.info(f"Sent detailed monthly report for {'family' if is_family else 'user'} {view_data.family_id}, period {period_name}")
         
@@ -389,15 +418,7 @@ async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_T
     callback_data = query.data
     year = int(callback_data.replace(CallbackPattern.DETAILED_REPORT_YEAR_PREFIX, ""))
     
-    # Check if it's family or personal report
-    is_family = context.user_data.get('dr_is_family', False)
-    
-    if is_family:
-        view_data = ViewData.from_context(context, prefix="family_view")
-        user_id = None  # Not needed for family reports
-    else:
-        user_id = await get_user_id(update, context)
-        view_data = ViewData.from_context(context)
+    is_family, user_id, view_data = await _resolve_report_scope(update, context)
     
     if not view_data.family_id:
         await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
@@ -410,38 +431,14 @@ async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_T
     period_name = f"{year} год"
     
     try:
-        async for session in get_db():
-            if is_family:
-                # For family reports, get all expenses for the family
-                summary = await crud.get_family_expenses_detailed_report(
-                    session,
-                    view_data.family_id,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-            else:
-                # For personal reports, get user expenses
-                summary = await crud.get_user_expenses_detailed_monthly_report(
-                    session,
-                    user_id,
-                    view_data.family_id,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-            break
-        
-        # Format and send report
-        message = format_detailed_report(summary, period_name)
-        
-        # Delete the selection message
-        try:
-            await query.message.delete()
-        except:
-            pass
-        
-        # Send detailed report with home button
-        keyboard = get_home_button()
-        await send_long_message(update, message, reply_markup=keyboard)
+        summary = await _fetch_report_summary(
+            is_family,
+            user_id,
+            view_data.family_id,
+            start_date,
+            end_date,
+        )
+        await _send_report_result(update, query, summary, period_name)
         
         logger.info(f"Sent detailed yearly report for {'family' if is_family else 'user'} {view_data.family_id}, period {period_name}")
         
@@ -465,43 +462,8 @@ async def family_detailed_report_select_type(update: Update, context: ContextTyp
         await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
         return
     
-    # Get available months and years from family expenses
-    async def get_expense_periods(session):
-        """Get unique months and years that have expenses."""
-        from sqlalchemy import select, func, extract
-        from bot.database.models import Expense
-        
-        # Get unique year-month combinations
-        query_months = (
-            select(
-                extract('year', Expense.date).label('year'),
-                extract('month', Expense.date).label('month')
-            )
-            .where(Expense.family_id == view_data.family_id)
-            .group_by('year', 'month')
-            .order_by('year', 'month')
-        )
-        
-        result = await session.execute(query_months)
-        months = result.all()
-        
-        # Get unique years
-        query_years = (
-            select(extract('year', Expense.date).label('year'))
-            .where(Expense.family_id == view_data.family_id)
-            .group_by('year')
-            .order_by('year')
-        )
-        
-        result = await session.execute(query_years)
-        years = result.scalars().all()
-        
-        return months, years
-    
     try:
-        async for session in get_db():
-            months, years = await get_expense_periods(session)
-            break
+        months, years = await _get_available_expense_periods(family_id=view_data.family_id)
     except Exception as e:
         logger.error(f"Error getting family expense periods: {e}")
         await query.answer("❌ Ошибка при получении данных", show_alert=True)
@@ -512,19 +474,11 @@ async def family_detailed_report_select_type(update: Update, context: ContextTyp
     context.user_data['dr_years'] = [int(y) for y in years]
     context.user_data['dr_is_family'] = True
     
-    # Build keyboard
-    keyboard = [
-        [InlineKeyboardButton("📅 Отчет за месяц", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}month")],
-        [InlineKeyboardButton("📆 Отчет за год", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}year")],
-        [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)],
-        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-    ]
-    
     await query.edit_message_text(
         "📊 <b>Выберите тип отчета:</b>\n\n"
         f"Доступно месяцев с расходами: {len(months)}\n"
         f"Доступно лет с расходами: {len(years)}",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=_build_report_type_keyboard(),
         parse_mode="HTML"
     )
 

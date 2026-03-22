@@ -12,6 +12,15 @@ from telegram.ext import ContextTypes
 logger = logging.getLogger(__name__)
 
 
+async def answer_query_safely(query) -> None:
+    """Answer callback query safely, ignoring errors."""
+    if query:
+        try:
+            await query.answer()
+        except Exception as e:
+            logger.debug(f"Failed to answer query: {e}")
+
+
 async def safe_edit_message(query, text: str, **kwargs):
     """Safely edit message, handling 'Message is not modified' error.
     
@@ -159,6 +168,41 @@ async def get_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Opt
         return user_id
     
     return None
+
+
+def extract_id_from_callback(callback_data: str, index: int = -1) -> int:
+    """Extract numeric ID from callback data by split index."""
+    return int(callback_data.split('_')[index])
+
+
+async def handle_db_operation(operation, error_message: str):
+    """
+    Execute database operation with consistent error handling.
+
+    Preserves existing handler behavior:
+    - uses a single session yielded by get_db()
+    - eagerly loads iterable ORM objects before session closes
+    - returns None on errors
+    """
+    from bot.database import get_db
+
+    result = None
+    async for session in get_db():
+        try:
+            result = await operation(session)
+            if result and hasattr(result, "__iter__") and not isinstance(result, (str, bytes, dict)):
+                result_list = list(result)
+                for obj in result_list:
+                    if hasattr(obj, "__dict__"):
+                        for key in obj.__dict__.keys():
+                            getattr(obj, key, None)
+                result = result_list
+        except Exception as e:
+            logger.error(f"{error_message}: {e}", exc_info=True)
+            result = None
+        finally:
+            break
+    return result
 
 
 def validate_amount(amount_str: str) -> Optional[Decimal]:

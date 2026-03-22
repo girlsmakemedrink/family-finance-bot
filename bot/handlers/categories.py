@@ -15,8 +15,16 @@ from telegram.ext import (
     filters,
 )
 
-from bot.database import CategoryTypeEnum, crud, get_db
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, safe_edit_message
+from bot.database import CategoryTypeEnum, crud
+from bot.utils.helpers import (
+    answer_query_safely as shared_answer_query_safely,
+    end_conversation_silently,
+    end_conversation_and_route,
+    extract_id_from_callback as shared_extract_id_from_callback,
+    get_user_id,
+    handle_db_operation as shared_handle_db_operation,
+    safe_edit_message,
+)
 from bot.utils.keyboards import add_navigation_buttons, get_home_button
 
 logger = logging.getLogger(__name__)
@@ -65,6 +73,13 @@ class CallbackPattern:
     CAT_TYPE_EXPENSE = "cat_type_expense"
     CAT_TYPE_INCOME = "cat_type_income"
     NAV_BACK = "nav_back"
+
+
+MAIN_NAV_PATTERN_CATEGORIES_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|my_expenses|"
+    "family_expenses|my_families|create_family|join_family|family_settings|"
+    "stats_start|quick_expense|search)$"
+)
 
 
 class ValidationLimits:
@@ -161,11 +176,7 @@ class CategoryData:
 
 async def answer_query_safely(query) -> None:
     """Answer callback query safely, ignoring errors."""
-    if query:
-        try:
-            await query.answer()
-        except Exception as e:
-            logger.debug(f"Failed to answer query: {e}")
+    await shared_answer_query_safely(query)
 
 
 async def send_or_edit_message(
@@ -206,7 +217,7 @@ def validate_category_name(name: str) -> tuple[Optional[str], Optional[str]]:
 
 def extract_id_from_callback(callback_data: str, index: int = -1) -> int:
     """Extract numeric ID from callback data."""
-    return int(callback_data.split('_')[index])
+    return shared_extract_id_from_callback(callback_data, index=index)
 
 
 async def handle_db_operation(operation, error_message: str):
@@ -220,33 +231,14 @@ async def handle_db_operation(operation, error_message: str):
     Returns:
         Result of operation or None on error
     """
-    result = None
-    async for session in get_db():
-        try:
-            result = await operation(session)
-            # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
-                # Force load all objects and their attributes
-                result_list = list(result)
-                # Access all lazy-loaded attributes to load them into memory
-                for obj in result_list:
-                    if hasattr(obj, '__dict__'):
-                        # Trigger loading of all attributes by accessing them
-                        for key in obj.__dict__.keys():
-                            getattr(obj, key, None)
-                result = result_list
-            # Log result info
-            result_info = f"type: {type(result)}"
-            if result and hasattr(result, '__len__'):
-                result_info += f", count: {len(result)}"
-            logger.info(f"handle_db_operation result {result_info}")
-        except Exception as e:
-            logger.error(f"{error_message}: {e}", exc_info=True)
-            result = None
-        finally:
-            break
-    
-    # Return after the session context is closed
+    result = await shared_handle_db_operation(operation, error_message)
+
+    # Keep existing local logging format for observability.
+    result_info = f"type: {type(result)}"
+    if result and hasattr(result, '__len__'):
+        result_info += f", count: {len(result)}"
+    logger.info(f"handle_db_operation result {result_info}")
+
     return_info = f"type: {type(result)}"
     if result and hasattr(result, '__len__'):
         return_info += f", count: {len(result)}"
@@ -464,6 +456,23 @@ class KeyboardBuilder:
     """Builder class for creating keyboards."""
     
     @staticmethod
+    def _wrap_with_navigation(
+        keyboard: List[List[InlineKeyboardButton]],
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        current_state: Optional[str] = None,
+        show_back: bool = True,
+    ) -> InlineKeyboardMarkup:
+        """Attach navigation buttons and wrap keyboard markup."""
+        keyboard = add_navigation_buttons(
+            keyboard,
+            context,
+            current_state=current_state,
+            show_back=show_back,
+        )
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
     def build_family_selection_keyboard(families: List, context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for family selection."""
         keyboard = [
@@ -473,24 +482,23 @@ class KeyboardBuilder:
             )]
             for family in families
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state="categories")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state="categories")
     
     @staticmethod
     def build_category_management_keyboard(family_id: int, has_custom: bool, has_any: bool, context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for category management."""
+        _ = has_custom  # Kept for backward-compatible call signature.
         keyboard = [
             [InlineKeyboardButton(f"{Emoji.PLUS} Добавить категорию", callback_data=f"{CallbackPattern.CAT_ADD_PREFIX}{family_id}")]
         ]
         
         if has_any:
-            keyboard.append([InlineKeyboardButton(f"{Emoji.EDIT} Изменить категорию", callback_data=f"{CallbackPattern.CAT_EDIT_PREFIX}{family_id}")])
+            keyboard.extend([
+                [InlineKeyboardButton(f"{Emoji.EDIT} Изменить категорию", callback_data=f"{CallbackPattern.CAT_EDIT_PREFIX}{family_id}")],
+                [InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию", callback_data=f"{CallbackPattern.CAT_DELETE_PREFIX}{family_id}")],
+            ])
         
-        if has_any:
-            keyboard.append([InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию", callback_data=f"{CallbackPattern.CAT_DELETE_PREFIX}{family_id}")])
-        
-        keyboard = add_navigation_buttons(keyboard, context, current_state="categories")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state="categories")
 
     @staticmethod
     def build_category_type_keyboard(context: ContextTypes.DEFAULT_TYPE, current_state: str) -> InlineKeyboardMarkup:
@@ -499,8 +507,7 @@ class KeyboardBuilder:
             [InlineKeyboardButton("💸 Расходы", callback_data=CallbackPattern.CAT_TYPE_EXPENSE)],
             [InlineKeyboardButton("💹 Доходы", callback_data=CallbackPattern.CAT_TYPE_INCOME)],
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state=current_state)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state=current_state)
     
     @staticmethod
     def build_confirmation_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -511,8 +518,7 @@ class KeyboardBuilder:
                 InlineKeyboardButton(f"{Emoji.ERROR} Отмена", callback_data=CallbackPattern.CAT_ADD_CANCEL)
             ]
         ]
-        keyboard = add_navigation_buttons(keyboard, context, show_back=False)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, show_back=False)
     
     @staticmethod
     def build_category_list_keyboard(categories: List, pattern_prefix: str, context: ContextTypes.DEFAULT_TYPE, state: str) -> InlineKeyboardMarkup:
@@ -524,8 +530,7 @@ class KeyboardBuilder:
             )]
             for cat in categories
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state=state)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state=state)
     
     @staticmethod
     def build_delete_confirmation_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -533,8 +538,7 @@ class KeyboardBuilder:
         keyboard = [
             [InlineKeyboardButton(f"{Emoji.SUCCESS} Да, удалить", callback_data=CallbackPattern.DELETE_CONFIRM)]
         ]
-        keyboard = add_navigation_buttons(keyboard, context)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context)
     
     @staticmethod
     def build_delete_with_expenses_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -543,8 +547,7 @@ class KeyboardBuilder:
             [InlineKeyboardButton(f"📦 Переместить операции в другую категорию", callback_data=CallbackPattern.MOVETARGET_PREFIX + "select")],
             [InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию вместе с операциями", callback_data=CallbackPattern.DELETE_WITH_EXPENSES)]
         ]
-        keyboard = add_navigation_buttons(keyboard, context)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context)
 
 
 # ============================================================================
@@ -670,8 +673,8 @@ async def add_category_select_type(update: Update, context: ContextTypes.DEFAULT
     cat_data.save_to_context(context, "add_cat")
     
     message = MessageBuilder.build_add_category_name_prompt(selected_type)
-    keyboard = add_navigation_buttons([], context, current_state="add_category")
-    await safe_edit_message(query, message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard = KeyboardBuilder._wrap_with_navigation([], context, current_state="add_category")
+    await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
     
     return ConversationState.ADD_ENTER_NAME
 
@@ -842,8 +845,8 @@ async def edit_category_select(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
     
     message = MessageBuilder.build_edit_enter_name_prompt(category.name)
-    keyboard = add_navigation_buttons([], context, current_state="edit_category")
-    await safe_edit_message(query, message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    keyboard = KeyboardBuilder._wrap_with_navigation([], context, current_state="edit_category")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
     
     return ConversationState.EDIT_ENTER_NAME
 
@@ -1267,7 +1270,7 @@ add_category_handler = ConversationHandler(
         CallbackQueryHandler(add_category_cancel, pattern=f"^{CallbackPattern.CAT_ADD_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_CATEGORIES_FLOW)
     ],
     name="add_category_conversation",
     allow_reentry=True,
@@ -1298,7 +1301,7 @@ edit_category_handler = ConversationHandler(
         CallbackQueryHandler(edit_category_cancel, pattern=f"^{CallbackPattern.CAT_EDIT_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_CATEGORIES_FLOW)
     ],
     allow_reentry=True,
     name="edit_category_conversation",
@@ -1336,7 +1339,7 @@ delete_category_handler = ConversationHandler(
         CallbackQueryHandler(delete_category_cancel, pattern=f"^{CallbackPattern.CAT_DELETE_CANCEL}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_CATEGORIES_FLOW)
     ],
     allow_reentry=True,
     name="delete_category_conversation",

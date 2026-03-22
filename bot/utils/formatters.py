@@ -7,6 +7,26 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bot.database.models import Expense
 
+MONTH_NAMES_RU = {
+    1: "Январь",
+    2: "Февраль",
+    3: "Март",
+    4: "Апрель",
+    5: "Май",
+    6: "Июнь",
+    7: "Июль",
+    8: "Август",
+    9: "Сентябрь",
+    10: "Октябрь",
+    11: "Ноябрь",
+    12: "Декабрь",
+}
+
+
+def format_month_year(month: int, year: int) -> str:
+    """Return localized month + year string, e.g. 'Январь 2026'."""
+    return f"{MONTH_NAMES_RU[month]} {year}"
+
 
 def format_amount(amount: Decimal | float) -> str:
     """Format amount for display with Russian formatting.

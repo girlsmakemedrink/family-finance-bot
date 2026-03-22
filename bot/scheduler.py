@@ -9,9 +9,10 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 from bot.database import crud, get_db
-from bot.utils.formatters import format_amount
+from bot.utils.formatters import format_amount, format_month_year
 
 logger = logging.getLogger(__name__)
+TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 
 
 async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str = "HTML") -> None:
@@ -23,9 +24,7 @@ async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str =
         text: Message text
         parse_mode: Parse mode (default: HTML)
     """
-    MAX_MESSAGE_LENGTH = 4096
-    
-    if len(text) <= MAX_MESSAGE_LENGTH:
+    if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:
         await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
         return
     
@@ -34,7 +33,7 @@ async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str =
     current_part = ""
     
     for line in text.split('\n'):
-        if len(current_part) + len(line) + 1 > MAX_MESSAGE_LENGTH:
+        if len(current_part) + len(line) + 1 > TELEGRAM_MAX_MESSAGE_LENGTH:
             if current_part:
                 parts.append(current_part)
             current_part = line + '\n'
@@ -141,12 +140,7 @@ async def check_and_send_monthly_summaries(bot: Bot) -> None:
     first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
     
     # Format month name
-    month_names = {
-        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
-    }
-    month_name = f"{month_names[last_day_of_previous_month.month]} {last_day_of_previous_month.year}"
+    month_name = format_month_year(last_day_of_previous_month.month, last_day_of_previous_month.year)
     
     current_hour = now.hour
     current_minute = now.minute

@@ -19,7 +19,15 @@ from telegram.ext import (
 
 from bot.database import CategoryTypeEnum, crud, get_db
 from bot.utils.formatters import format_amount
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id, notify_income_to_family
+from bot.utils.helpers import (
+    answer_query_safely as shared_answer_query_safely,
+    end_conversation_silently,
+    end_conversation_and_route,
+    extract_id_from_callback as shared_extract_id_from_callback,
+    get_user_id,
+    handle_db_operation as shared_handle_db_operation,
+    notify_income_to_family,
+)
 from bot.utils.keyboards import add_navigation_buttons, get_home_button, get_add_another_income_keyboard
 
 logger = logging.getLogger(__name__)
@@ -45,6 +53,13 @@ class CallbackPattern:
     SKIP_DESCRIPTION = "income_skip_description"
     CANCEL_ADD = "cancel_add_income"
     NAV_BACK = "nav_back"
+
+
+MAIN_NAV_PATTERN_ADD_INCOME_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|family_expenses|"
+    "my_expenses|my_families|create_family|join_family|family_settings|"
+    "stats_start|quick_expense|search)$"
+)
 
 
 class ValidationLimits:
@@ -138,24 +153,29 @@ class IncomeData:
 
 async def answer_query_safely(query) -> None:
     """Answer callback query safely."""
-    if query:
-        try:
-            await query.answer()
-        except Exception as e:
-            logger.debug(f"Failed to answer query: {e}")
+    await shared_answer_query_safely(query)
 
 
-async def send_or_edit_message(update: Update, message: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+async def send_or_edit_message(
+    update: Update,
+    message: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: Optional[str] = "HTML",
+) -> None:
     """Send or edit message depending on update type."""
+    # In real Telegram updates, message and callback_query are mutually exclusive.
+    # Prioritizing message branch improves compatibility with unit-test mocks.
+    if update.message:
+        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode=parse_mode)
+        return
+
     if update.callback_query:
-        await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode="HTML")
-    elif update.message:
-        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode="HTML")
+        await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode=parse_mode)
 
 
 def extract_id_from_callback(callback_data: str) -> int:
     """Extract numeric ID from callback data."""
-    return int(callback_data.split('_')[-1])
+    return shared_extract_id_from_callback(callback_data)
 
 
 def validate_amount(amount_str: str) -> Optional[Decimal]:
@@ -174,23 +194,7 @@ def validate_amount(amount_str: str) -> Optional[Decimal]:
 
 async def handle_db_operation(operation, error_message: str):
     """Handle database operations with error handling."""
-    result = None
-    async for session in get_db():
-        try:
-            result = await operation(session)
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
-                result_list = list(result)
-                for obj in result_list:
-                    if hasattr(obj, '__dict__'):
-                        for key in obj.__dict__.keys():
-                            getattr(obj, key, None)
-                result = result_list
-        except Exception as e:
-            logger.error(f"{error_message}: {e}", exc_info=True)
-            result = None
-        finally:
-            break
-    return result
+    return await shared_handle_db_operation(operation, error_message)
 
 
 # ============================================================================
@@ -285,14 +289,29 @@ class KeyboardBuilder:
     """Builder class for creating keyboards."""
 
     @staticmethod
+    def _as_markup(keyboard: List[List[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+        """Wrap button matrix into Telegram inline keyboard markup."""
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def _wrap_with_navigation(
+        keyboard: List[List[InlineKeyboardButton]],
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        current_state: Optional[str] = None,
+    ) -> InlineKeyboardMarkup:
+        """Attach navigation controls and wrap keyboard markup."""
+        keyboard = add_navigation_buttons(keyboard, context, current_state=current_state)
+        return KeyboardBuilder._as_markup(keyboard)
+
+    @staticmethod
     def build_no_families_keyboard(context: ContextTypes.DEFAULT_TYPE, current_state: str) -> InlineKeyboardMarkup:
         """Build keyboard when user has no families."""
         keyboard = [
             [InlineKeyboardButton(f"{Emoji.FAMILY} Создать семью", callback_data="create_family")],
             [InlineKeyboardButton("🔗 Присоединиться к семье", callback_data="join_family")]
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state=current_state)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state=current_state)
 
     @staticmethod
     def build_family_selection_keyboard(families: List, context: ContextTypes.DEFAULT_TYPE, current_state: str) -> InlineKeyboardMarkup:
@@ -301,8 +320,7 @@ class KeyboardBuilder:
             [InlineKeyboardButton(family.name, callback_data=f"{CallbackPattern.SELECT_FAMILY_PREFIX}{family.id}")]
             for family in families
         ]
-        keyboard = add_navigation_buttons(keyboard, context, current_state=current_state)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state=current_state)
 
     @staticmethod
     def build_category_selection_keyboard(categories: List, context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
@@ -321,20 +339,17 @@ class KeyboardBuilder:
                 row = []
         if row:
             keyboard.append(row)
-        keyboard = add_navigation_buttons(keyboard, context)
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context)
 
     @staticmethod
     def build_amount_input_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         keyboard = []
-        keyboard = add_navigation_buttons(keyboard, context, current_state="enter_income_amount")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state="enter_income_amount")
 
     @staticmethod
     def build_description_input_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         keyboard = [[InlineKeyboardButton(f"{Emoji.SKIP} Пропустить", callback_data=CallbackPattern.SKIP_DESCRIPTION)]]
-        keyboard = add_navigation_buttons(keyboard, context, current_state="enter_income_description")
-        return InlineKeyboardMarkup(keyboard)
+        return KeyboardBuilder._wrap_with_navigation(keyboard, context, current_state="enter_income_description")
 
 
 # ============================================================================
@@ -489,13 +504,8 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     income_data = IncomeData.from_context(context)
     income_data.amount = amount
-    
-    if description:
-        income_data.description = description
-        income_data.save_to_context(context)
-        return await _save_income(update, context, income_data)
-    
-    income_data.description = None
+
+    income_data.description = description if description else None
     income_data.save_to_context(context)
     return await _save_income(update, context, income_data)
 
@@ -524,10 +534,7 @@ async def _save_income(update: Update, context: ContextTypes.DEFAULT_TYPE, incom
     user_id = await get_user_id(update, context)
     
     if not all([user_id, income_data.family_id, income_data.category_id, income_data.amount]):
-        if update.callback_query:
-            await update.callback_query.edit_message_text(ErrorMessage.MISSING_DATA)
-        elif update.message:
-            await update.message.reply_text(ErrorMessage.MISSING_DATA)
+        await send_or_edit_message(update, ErrorMessage.MISSING_DATA, parse_mode=None)
         return ConversationHandler.END
     
     async def create_income_and_notify(session):
@@ -551,10 +558,7 @@ async def _save_income(update: Update, context: ContextTypes.DEFAULT_TYPE, incom
     
     if result is None:
         error_text = f"{Emoji.ERROR} Произошла ошибка при сохранении дохода. Пожалуйста, попробуйте позже."
-        if update.callback_query:
-            await update.callback_query.edit_message_text(error_text)
-        elif update.message:
-            await update.message.reply_text(error_text)
+        await send_or_edit_message(update, error_text, parse_mode=None)
         return ConversationHandler.END
     
     income, user, category, family_members = result
@@ -566,10 +570,7 @@ async def _save_income(update: Update, context: ContextTypes.DEFAULT_TYPE, incom
     message = MessageBuilder.build_income_created_message(income_data, income, user)
     reply_markup = get_add_another_income_keyboard()
     
-    if update.callback_query:
-        await update.callback_query.edit_message_text(message, parse_mode="HTML", reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=reply_markup)
+    await send_or_edit_message(update, message, parse_mode="HTML", reply_markup=reply_markup)
     
     income_data.clear_from_context(context)
     return ConversationHandler.END
@@ -615,7 +616,7 @@ add_income_handler = ConversationHandler(
         CommandHandler("cancel", cancel_add_income),
         CallbackQueryHandler(cancel_add_income, pattern=f"^{CallbackPattern.CANCEL_ADD}$"),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|family_expenses|my_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_ADD_INCOME_FLOW)
     ],
     name="add_income_conversation",
     persistent=False,

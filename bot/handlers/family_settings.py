@@ -16,7 +16,12 @@ from telegram.ext import (
 )
 
 from bot.database import crud, get_db
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route
+from bot.utils.helpers import (
+    answer_query_safely as shared_answer_query_safely,
+    end_conversation_silently,
+    end_conversation_and_route,
+    handle_db_operation as shared_handle_db_operation,
+)
 from bot.utils.keyboards import (
     get_back_button,
     get_confirmation_keyboard,
@@ -52,6 +57,13 @@ class CallbackPattern:
     CONFIRM_DELETE_FAMILY = "confirm_delete_family"
     START = "start"
     NAV_BACK = "nav_back"
+
+
+MAIN_NAV_PATTERN_FAMILY_SETTINGS_FLOW = (
+    "^(start|categories|settings|help|add_expense|add_income|my_expenses|"
+    "family_expenses|my_families|create_family|join_family|family_settings|"
+    "stats_start|quick_expense|search)$"
+)
 
 
 class ValidationLimits:
@@ -121,11 +133,7 @@ class FamilySettingsData:
 
 async def answer_query_safely(query) -> None:
     """Answer callback query safely."""
-    if query:
-        try:
-            await query.answer()
-        except Exception as e:
-            logger.debug(f"Failed to answer query: {e}")
+    await shared_answer_query_safely(query)
 
 
 def validate_family_name(name: str) -> tuple[Optional[str], Optional[str]]:
@@ -151,25 +159,13 @@ def validate_family_name(name: str) -> tuple[Optional[str], Optional[str]]:
 
 async def handle_db_operation(operation, error_message: str):
     """Handle database operations with error handling."""
-    result = None
+    return await shared_handle_db_operation(operation, error_message)
+
+
+async def get_first_db_session():
+    """Return first available DB session from generator."""
     async for session in get_db():
-        try:
-            result = await operation(session)
-            # Ensure objects are loaded before session closes
-            if result and hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
-                # Force load all objects and their attributes
-                result_list = list(result)
-                for obj in result_list:
-                    if hasattr(obj, '__dict__'):
-                        for key in obj.__dict__.keys():
-                            getattr(obj, key, None)
-                result = result_list
-        except Exception as e:
-            logger.error(f"{error_message}: {e}", exc_info=True)
-            result = None
-        finally:
-            break
-    return result
+        return session
 
 
 # ============================================================================
@@ -288,17 +284,12 @@ async def family_settings_command(update: Update, context: ContextTypes.DEFAULT_
     
     result = await handle_db_operation(get_user_and_families, "Error in family_settings_command")
     
-    if result is None:
+    if result is None or result[0] is None:
         keyboard = get_home_button()
         await message.reply_text(ErrorMessage.USER_NOT_FOUND, reply_markup=keyboard)
         return
     
     user, families = result
-    
-    if not user:
-        keyboard = get_home_button()
-        await message.reply_text(ErrorMessage.USER_NOT_FOUND, reply_markup=keyboard)
-        return
     
     if not families:
         text = ErrorMessage.NO_FAMILIES
@@ -311,11 +302,7 @@ async def family_settings_command(update: Update, context: ContextTypes.DEFAULT_
             await message.reply_text(text, reply_markup=keyboard)
         return
     
-    async def get_session():
-        async for session in get_db():
-            return session
-    
-    session = await get_session()
+    session = await get_first_db_session()
     
     if len(families) == 1:
         await show_family_settings(update, context, user.id, families[0].id, session)
@@ -464,11 +451,7 @@ async def family_rename_process(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=keyboard
     )
     
-    async def get_session():
-        async for session in get_db():
-            return session
-    
-    session = await get_session()
+    session = await get_first_db_session()
     await show_family_settings(update, context, user.id, settings_data.selected_family_id, session)
     
     return ConversationHandler.END
@@ -515,11 +498,7 @@ async def family_regenerate_code_callback(update: Update, context: ContextTypes.
     
     await update.callback_query.answer(f"{Emoji.SUCCESS} Новый инвайт-код сгенерирован")
     
-    async def get_session():
-        async for session in get_db():
-            return session
-    
-    session = await get_session()
+    session = await get_first_db_session()
     await show_family_settings(update, context, user.id, settings_data.selected_family_id, session)
 
 
@@ -726,7 +705,7 @@ family_rename_handler = ConversationHandler(
         CommandHandler("cancel", cancel_rename),
         CallbackQueryHandler(end_conversation_silently, pattern=f"^{CallbackPattern.NAV_BACK}$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern=MAIN_NAV_PATTERN_FAMILY_SETTINGS_FLOW)
     ],
     allow_reentry=True,
     name="family_rename_conversation",
