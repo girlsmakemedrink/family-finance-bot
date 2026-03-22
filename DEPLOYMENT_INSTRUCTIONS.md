@@ -89,6 +89,7 @@ nano .env
 
 ```env
 BOT_TOKEN=your_bot_token_from_botfather
+ADMIN_BOT_TOKEN=your_admin_bot_token_from_botfather
 DATABASE_URL=postgresql://familybot:your_secure_password@localhost:5432/family_finance
 DEBUG=False
 LOG_LEVEL=INFO
@@ -110,19 +111,31 @@ exit
 
 # Копирование service файла
 sudo cp /opt/family-finance-bot/family-finance-bot.service /etc/systemd/system/
+sudo cp /opt/family-finance-bot/family-finance-admin-bot.service /etc/systemd/system/
 
 # Перезагрузка systemd
 sudo systemctl daemon-reload
 
 # Включение автозапуска
 sudo systemctl enable family-finance-bot
+sudo systemctl enable family-finance-admin-bot
 
 # Запуск бота
 sudo systemctl start family-finance-bot
+sudo systemctl start family-finance-admin-bot
 
 # Проверка статуса
 sudo systemctl status family-finance-bot
+sudo systemctl status family-finance-admin-bot
 ```
+
+### Админ-панель (второй сервис)
+
+Админ-панель — это **отдельный Telegram-бот** (`admin_bot.py`), который использует **ту же базу данных**.
+
+- Требуется переменная `ADMIN_BOT_TOKEN`
+- Доступ ограничен списком `ADMIN_USER_IDS`
+- Управление делается теми же скриптами: `START_BOT.sh`, `STOP_BOT.sh`, `RESTART_BOT.sh`, `STATUS_BOT.sh`, `VIEW_LOGS.sh`
 
 ### Шаг 7: Настройка логов
 
@@ -166,6 +179,7 @@ nano .env
 
 ```env
 BOT_TOKEN=your_bot_token_from_botfather
+ADMIN_BOT_TOKEN=your_admin_bot_token_from_botfather
 DB_USER=familybot
 DB_PASSWORD=your_secure_password
 DB_NAME=family_finance
@@ -182,7 +196,7 @@ ADMIN_USER_IDS=123456789
 docker-compose up -d
 
 # Просмотр логов
-docker-compose logs -f bot
+docker-compose logs -f bot admin_bot
 
 # Проверка статуса
 docker-compose ps

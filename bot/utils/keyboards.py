@@ -100,8 +100,9 @@ def get_main_menu_keyboard(has_families: bool = False) -> InlineKeyboardMarkup:
         ]
     else:
         buttons = [
-            [("➕ Добавить расход", "add_expense")],
+            [("➕ Добавить расход", "add_expense"), ("➕ Добавить доход", "add_income")],
             [("📊 Статистика", "stats_start"), ("🏷️ Категории", "categories")],
+            [("🕘 Мои последние операции", "recent_ops")],
             [("👨‍👩‍👧‍👦 Мои семьи", "my_families"), ("➕ Создать семью", "create_family")],
             [("🔗 Присоединиться", "join_family"), ("⚙️ Настройки", "settings")],
             [("❓ Помощь", "help")]
@@ -229,8 +230,7 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
         [("🌍 Часовой пояс", "settings_timezone")],
         [("📅 Формат даты", "settings_date_format")],
         [("📊 Месячная сводка", "settings_monthly_summary")],
-        [("🚨 Порог больших трат", "settings_threshold")],
-        [("🔔 Уведомления о расходах", "settings_expense_notifications")],
+        [("🔔 Уведомления об операциях", "settings_expense_notifications")],
         [("🏠 Главное меню", "start")]
     ]
     return build_inline_keyboard(buttons)
@@ -319,7 +319,19 @@ def get_add_another_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить еще расход", "add_expense")],
-        [("📊 Мои расходы", "my_expenses")],
+        [("🏠 Главное меню", "start")]
+    ]
+    return build_inline_keyboard(buttons)
+
+
+def get_add_another_income_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard with 'Add another income' button.
+    
+    Returns:
+        InlineKeyboardMarkup with add another income button
+    """
+    buttons = [
+        [("➕ Добавить еще доход", "add_income")],
         [("🏠 Главное меню", "start")]
     ]
     return build_inline_keyboard(buttons)
@@ -387,5 +399,37 @@ def get_home_button() -> InlineKeyboardMarkup:
         InlineKeyboardMarkup with home button
     """
     buttons = [[("🏠 Главное меню", "start")]]
+    return build_inline_keyboard(buttons)
+
+
+def get_expense_notification_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard for expense notifications from family members.
+    
+    Provides quick navigation options when receiving notification
+    about a new expense from another family member.
+    
+    Returns:
+        InlineKeyboardMarkup with navigation buttons
+    """
+    buttons = [
+        [("➕ Добавить расход", "add_expense")],
+        [("🏠 Главное меню", "start")]
+    ]
+    return build_inline_keyboard(buttons)
+
+
+def get_income_notification_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard for income notifications from family members.
+    
+    Provides quick navigation options when receiving notification
+    about a new income from another family member.
+    
+    Returns:
+        InlineKeyboardMarkup with navigation buttons
+    """
+    buttons = [
+        [("➕ Добавить доход", "add_income")],
+        [("🏠 Главное меню", "start")]
+    ]
     return build_inline_keyboard(buttons)
 

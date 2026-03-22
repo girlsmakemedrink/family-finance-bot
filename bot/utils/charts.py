@@ -74,14 +74,13 @@ def create_category_chart(category_data: List[Dict], max_categories: int = 10) -
     
     # Show top N categories
     for i, cat in enumerate(category_data[:max_categories]):
-        icon = cat['category_icon']
         name = cat['category_name']
         amount = cat['amount']
         percentage = cat['percentage']
         
         # Format the category line
         lines.append(
-            f"{icon} {name} - {format_amount(amount)} ({percentage:.1f}%)"
+            f"• {name} - {format_amount(amount)} ({percentage:.1f}%)"
         )
         
         # Add bar chart

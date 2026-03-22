@@ -52,6 +52,34 @@ services:
         python main.py
       "
 
+  # Admin Panel Bot (separate Telegram bot, same DB)
+  admin_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: family_finance_admin_bot
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      bot:
+        condition: service_started
+    environment:
+      ADMIN_BOT_TOKEN: ${ADMIN_BOT_TOKEN}
+      DATABASE_URL: postgresql://${DB_USER:-familybot}:${DB_PASSWORD:-changeme}@db:5432/${DB_NAME:-family_finance}
+      DEBUG: ${DEBUG:-False}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - bot_network
+    command: >
+      sh -c "
+        echo 'Starting admin bot...' &&
+        python admin_bot.py
+      "
+
 volumes:
   postgres_data:
     driver: local

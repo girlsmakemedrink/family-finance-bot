@@ -1,6 +1,8 @@
 """Family management handlers for creating and joining families."""
 
 import logging
+from datetime import datetime, timedelta
+from decimal import Decimal
 from urllib.parse import quote
 from typing import Optional
 
@@ -30,8 +32,10 @@ from bot.utils.constants import (
     MSG_INVITE_CODE_INVALID,
     MSG_WITHOUT_FAMILIES,
     MSG_WITH_FAMILIES,
+    MSG_QUICK_ACTIONS_FOOTER,
 )
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.formatters import format_amount
 from bot.utils.keyboards import add_navigation_buttons, get_main_menu_keyboard, get_home_button
 from bot.utils.message_utils import (
     MessageHandler as MsgHandler,
@@ -425,7 +429,10 @@ async def join_family_code_received(
             success_message = _create_join_success_message(family)
             
             keyboard = [
-                [InlineKeyboardButton("💰 Добавить расход", callback_data="add_expense")],
+                [
+                    InlineKeyboardButton("💰 Добавить расход", callback_data="add_expense"),
+                    InlineKeyboardButton("💹 Добавить доход", callback_data="add_income")
+                ],
                 [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
             ]
@@ -486,6 +493,66 @@ async def cancel_conversation(
         if families:
             families_list = format_families_list(families)
             welcome_message += MSG_WITH_FAMILIES.format(families_list=families_list)
+            
+            # Add family balance block
+            now = datetime.now()
+            start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            next_month = (start_of_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+            end_of_month = next_month - timedelta(microseconds=1)
+
+            family_ids = [f.id for f in families]
+            selected_id = context.user_data.get("selected_family_id")
+            
+            if selected_id in family_ids:
+                selected_family = next((f for f in families if f.id == selected_id), None)
+                label = selected_family.name if selected_family else "Семья"
+                totals = await crud.get_family_income_expense_totals(
+                    session,
+                    int(selected_id),
+                    start_date=start_of_month,
+                    end_date=end_of_month,
+                )
+            elif len(family_ids) == 1:
+                label = families[0].name
+                totals = await crud.get_family_income_expense_totals(
+                    session,
+                    int(family_ids[0]),
+                    start_date=start_of_month,
+                    end_date=end_of_month,
+                )
+            else:
+                label = "Все семьи"
+                totals = await crud.get_families_income_expense_totals(
+                    session,
+                    family_ids,
+                    start_date=start_of_month,
+                    end_date=end_of_month,
+                )
+            
+            income_total: Decimal = totals.get("income_total", Decimal("0"))
+            expense_total: Decimal = totals.get("expense_total", Decimal("0"))
+            balance: Decimal = totals.get("balance", income_total - expense_total)
+
+            total_flow = income_total + expense_total
+            if total_flow > 0:
+                income_pct = float((income_total / total_flow) * 100)
+                expense_pct = 100.0 - income_pct
+                income_line = f"📈 Доходы: {format_amount(income_total)} ({income_pct:.0f}%)"
+                expense_line = f"📉 Расходы: {format_amount(expense_total)} ({expense_pct:.0f}%)"
+            else:
+                income_line = f"📈 Доходы: {format_amount(income_total)}"
+                expense_line = f"📉 Расходы: {format_amount(expense_total)}"
+            
+            welcome_message += (
+                "\n\n"
+                f"📌 <b>Баланс: {label}</b>\n"
+                f"{income_line}\n"
+                f"{expense_line}\n"
+                f"💰 Баланс: {format_amount(balance)}"
+            )
+
+            # Move "quick actions" hint to the very end (right above the buttons)
+            welcome_message += "\n\n" + MSG_QUICK_ACTIONS_FOOTER
         else:
             welcome_message += MSG_WITHOUT_FAMILIES
         
@@ -1017,13 +1084,14 @@ create_family_handler = ConversationHandler(
         CallbackQueryHandler(cancel_conversation, pattern="^cancel_create_family$"),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|join_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|join_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="create_family_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 # Join family conversation handler
@@ -1042,13 +1110,14 @@ join_family_handler = ConversationHandler(
         CallbackQueryHandler(cancel_conversation, pattern="^cancel_join_family$"),
         CallbackQueryHandler(end_conversation_silently, pattern="^nav_back$"),
         # Main navigation fallbacks - end conversation and route to new section
-        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|my_expenses|family_expenses|my_families|create_family|family_settings|stats_start|quick_expense|search)$")
+        CallbackQueryHandler(end_conversation_and_route, pattern="^(start|categories|settings|help|add_expense|add_income|my_expenses|family_expenses|my_families|create_family|family_settings|stats_start|quick_expense|search)$")
     ],
     allow_reentry=True,
     name="join_family_conversation",
     persistent=False,
     per_chat=True,
-    per_user=True
+    per_user=True,
+    per_message=False  # False because handler uses MessageHandler and CommandHandler
 )
 
 # My families command handler

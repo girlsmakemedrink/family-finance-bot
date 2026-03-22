@@ -22,10 +22,23 @@ if systemctl list-unit-files | grep -q family-finance-bot.service 2>/dev/null; t
     echo ""
 fi
 
+if systemctl list-unit-files | grep -q family-finance-admin-bot.service 2>/dev/null; then
+    echo "📦 Systemd Service (админ-панель):"
+    if systemctl is-active --quiet family-finance-admin-bot; then
+        echo "   Статус: ✅ Работает"
+        echo "   Автозапуск: $(systemctl is-enabled family-finance-admin-bot 2>/dev/null)"
+        echo ""
+        sudo systemctl status family-finance-admin-bot --no-pager | head -n 15
+    else
+        echo "   Статус: ❌ Остановлен"
+    fi
+    echo ""
+fi
+
 # Проверка Docker
 if command -v docker &> /dev/null && command -v docker-compose &> /dev/null; then
     if docker ps | grep -q family_finance_bot 2>/dev/null; then
-        echo "🐳 Docker Контейнер:"
+        echo "🐳 Docker Контейнер (основной бот):"
         echo "   Статус: ✅ Работает"
         echo ""
         docker ps | grep family_finance
@@ -33,6 +46,18 @@ if command -v docker &> /dev/null && command -v docker-compose &> /dev/null; the
         docker stats --no-stream family_finance_bot 2>/dev/null || true
     else
         echo "🐳 Docker: ❌ Не запущен"
+    fi
+    echo ""
+
+    if docker ps | grep -q family_finance_admin_bot 2>/dev/null; then
+        echo "🐳 Docker Контейнер (админ-панель):"
+        echo "   Статус: ✅ Работает"
+        echo ""
+        docker ps | grep family_finance_admin
+        echo ""
+        docker stats --no-stream family_finance_admin_bot 2>/dev/null || true
+    else
+        echo "🐳 Docker (админ-панель): ❌ Не запущен"
     fi
     echo ""
 fi
@@ -45,11 +70,25 @@ if screen -ls 2>/dev/null | grep -q family_bot; then
     echo ""
 fi
 
+if screen -ls 2>/dev/null | grep -q family_admin_bot; then
+    echo "📺 Screen сессия (админ-панель):"
+    echo "   Статус: ✅ Работает"
+    screen -ls | grep family_admin_bot
+    echo ""
+fi
+
 # Проверка tmux
 if tmux ls 2>/dev/null | grep -q family_bot; then
     echo "📺 Tmux сессия:"
     echo "   Статус: ✅ Работает"
     tmux ls | grep family_bot
+    echo ""
+fi
+
+if tmux ls 2>/dev/null | grep -q family_admin_bot; then
+    echo "📺 Tmux сессия (админ-панель):"
+    echo "   Статус: ✅ Работает"
+    tmux ls | grep family_admin_bot
     echo ""
 fi
 
@@ -67,6 +106,14 @@ if pgrep -f "python.*main.py" > /dev/null; then
         echo "📈 Использование ресурсов:"
         top -b -n 1 -p $PID | tail -n 2
     fi
+    echo ""
+fi
+
+if pgrep -f "python.*admin_bot.py" > /dev/null; then
+    echo "🔧 Процесс Python (админ-панель):"
+    echo "   Статус: ✅ Работает"
+    echo ""
+    ps aux | grep "[p]ython.*admin_bot.py"
     echo ""
 fi
 
@@ -100,8 +147,11 @@ echo ""
 echo "📝 Последние логи (5 строк):"
 if systemctl is-active --quiet family-finance-bot 2>/dev/null; then
     sudo journalctl -u family-finance-bot -n 5 --no-pager
+    if systemctl list-unit-files | grep -q family-finance-admin-bot.service 2>/dev/null; then
+        sudo journalctl -u family-finance-admin-bot -n 5 --no-pager || true
+    fi
 elif docker ps | grep -q family_finance_bot 2>/dev/null; then
-    docker-compose logs --tail=5 bot 2>/dev/null
+    docker-compose logs --tail=5 bot admin_bot 2>/dev/null
 else
     LOG_FILE="$BOT_DIR/logs/bot.log"
     if [ ! -f "$LOG_FILE" ]; then

@@ -1,6 +1,8 @@
 """Start command handler with user registration."""
 
 import logging
+from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Optional, Tuple
 
 from telegram import Update
@@ -11,12 +13,14 @@ from bot.database import crud, get_db
 from bot.utils.constants import (
     MSG_WITHOUT_FAMILIES,
     MSG_WITH_FAMILIES,
+    MSG_QUICK_ACTIONS_FOOTER,
     WELCOME_NEW_USER,
     WELCOME_RETURNING_USER,
 )
 from bot.utils.keyboards import get_main_menu_keyboard
 from bot.utils.message_utils import UserDataExtractor, format_families_list
 from bot.utils.navigation import NavigationManager
+from bot.utils.formatters import format_amount
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,86 @@ def _save_user_to_context(context: ContextTypes.DEFAULT_TYPE, user_id: int, tele
     context.user_data['telegram_id'] = telegram_id
 
 
+def _pick_family_scope_for_main_menu(context: ContextTypes.DEFAULT_TYPE, families) -> tuple[str, Optional[int], str, list[int]]:
+    """Pick which family scope to show in main menu balance block.
+    
+    Priority:
+    - selected_family_id (if still available)
+    - the only family (if exactly one)
+    - all families (aggregate)
+    
+    Returns:
+        (scope_kind, family_id, label, family_ids)
+    """
+    family_ids = [f.id for f in families] if families else []
+    selected_id = context.user_data.get("selected_family_id")
+    
+    if selected_id in family_ids:
+        selected_family = next((f for f in families if f.id == selected_id), None)
+        label = selected_family.name if selected_family else "Семья"
+        return ("single", int(selected_id), label, family_ids)
+    
+    if len(family_ids) == 1:
+        return ("single", int(family_ids[0]), families[0].name, family_ids)
+    
+    return ("all", None, "Все семьи", family_ids)
+
+
+async def _build_family_balance_block(
+    session,
+    context: ContextTypes.DEFAULT_TYPE,
+    families,
+) -> str:
+    """Build 'family balance' block for main menu."""
+    if not families:
+        return ""
+
+    # Current month range: [1st day 00:00, last moment of current month]
+    now = datetime.now()
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    next_month = (start_of_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    end_of_month = next_month - timedelta(microseconds=1)
+    
+    scope_kind, family_id, label, family_ids = _pick_family_scope_for_main_menu(context, families)
+    
+    if scope_kind == "single" and family_id is not None:
+        totals = await crud.get_family_income_expense_totals(
+            session,
+            family_id,
+            start_date=start_of_month,
+            end_date=end_of_month,
+        )
+    else:
+        totals = await crud.get_families_income_expense_totals(
+            session,
+            family_ids,
+            start_date=start_of_month,
+            end_date=end_of_month,
+        )
+    
+    income_total: Decimal = totals.get("income_total", Decimal("0"))
+    expense_total: Decimal = totals.get("expense_total", Decimal("0"))
+    balance: Decimal = totals.get("balance", income_total - expense_total)
+
+    total_flow = income_total + expense_total
+    if total_flow > 0:
+        income_pct = float((income_total / total_flow) * 100)
+        expense_pct = 100.0 - income_pct
+        income_line = f"📈 Доходы: {format_amount(income_total)} ({income_pct:.0f}%)"
+        expense_line = f"📉 Расходы: {format_amount(expense_total)} ({expense_pct:.0f}%)"
+    else:
+        income_line = f"📈 Доходы: {format_amount(income_total)}"
+        expense_line = f"📉 Расходы: {format_amount(expense_total)}"
+    
+    return (
+        "\n\n"
+        f"📌 <b>Баланс: {label}</b>\n"
+        f"{income_line}\n"
+        f"{expense_line}\n"
+        f"💰 Баланс: {format_amount(balance)}"
+    )
+
+
 async def _process_start_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -145,6 +229,13 @@ async def _process_start_command(
             families,
             is_new_user and not is_callback
         )
+
+        # Add family balance block (if any family exists)
+        welcome_message += await _build_family_balance_block(session, context, families)
+
+        # Move "quick actions" hint to the very end (right above the buttons)
+        if families:
+            welcome_message += "\n\n" + MSG_QUICK_ACTIONS_FOOTER
         
         # Get appropriate keyboard
         reply_markup = get_main_menu_keyboard(has_families=bool(families))
@@ -236,25 +327,20 @@ async def about_command(
     about_text = (
         "ℹ️ <b>О боте Family Finance Bot</b>\n\n"
         
-        "Этот бот помогает семьям вести учет общих финансов.\n\n"
+        "Семейный финансовый помощник для учёта общих финансов.\n\n"
         
         "<b>Версия:</b> 1.0.0\n"
         "<b>Разработчик:</b> Family Finance Team\n\n"
         
-        "<b>Особенности:</b>\n"
-        "✅ Совместный учет расходов всей семьи\n"
-        "✅ Автоматическая категоризация\n"
-        "✅ Детальная статистика и отчеты\n"
-        "✅ Простой и понятный интерфейс\n"
-        "✅ Безопасное хранение данных\n\n"
-        
-        "<b>Технологии:</b>\n"
-        "🐍 Python + python-telegram-bot\n"
-        "🗄️ SQLAlchemy + AsyncIO\n"
-        "💾 SQLite / PostgreSQL\n\n"
-        
-        "📝 <b>Исходный код:</b> github.com/yourproject\n"
-        "📧 <b>Поддержка:</b> @support_bot\n\n"
+        "<b>Возможности:</b>\n"
+        "👨‍👩‍👧‍👦 Совместный учёт для всей семьи\n"
+        "💵 Расходы и доходы\n"
+        "🏷️ Категории (свои + стандартные)\n"
+        "⚡ Быстрые расходы — шаблоны\n"
+        "📊 Детальная аналитика и графики\n"
+        "📅 Автоматические месячные сводки\n"
+        "📄 Экспорт: HTML отчёты\n"
+        "⚙️ Валюта, часовой пояс, персонализация\n\n"
         
         "Спасибо, что используете наш бот! ❤️"
     )

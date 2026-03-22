@@ -104,22 +104,21 @@ def format_expense(expense: "Expense") -> str:
     return "\n".join(lines)
 
 
-def format_category_summary(category_name: str, category_icon: str, amount: Decimal | float) -> str:
+def format_category_summary(category_name: str, amount: Decimal | float) -> str:
     """Format category summary line.
     
     Args:
         category_name: Name of the category
-        category_icon: Icon emoji for the category
         amount: Total amount for the category
         
     Returns:
         Formatted category summary string
         
     Example:
-        >>> format_category_summary("Продукты", "🍔", Decimal("1500.00"))
-        "🍔 Продукты - 1 500 ₽"
+        >>> format_category_summary("Продукты", Decimal("1500.00"))
+        "• Продукты - 1 500 ₽"
     """
-    return f"{category_icon} {category_name} - {format_amount(amount)}"
+    return f"• {category_name} - {format_amount(amount)}"
 
 
 def truncate_text(text: str, max_length: int = 50, suffix: str = "...") -> str:
