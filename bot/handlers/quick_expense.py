@@ -18,6 +18,7 @@ from telegram.ext import (
 )
 
 from bot.database import crud
+from bot.utils.constants import HTML_PARSE_MODE
 from bot.utils.formatters import format_amount
 from bot.utils.helpers import (
     answer_query_safely as shared_answer_query_safely,
@@ -163,7 +164,7 @@ async def send_or_edit_message(
     update: Update,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    parse_mode: str = "HTML"
+    parse_mode: str = HTML_PARSE_MODE
 ) -> None:
     """Send new message or edit existing one based on update type."""
     # In real Telegram updates, message and callback_query are mutually exclusive.
@@ -658,7 +659,7 @@ async def qe_use_template(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     message = MessageBuilder.build_expense_created_message(template, expense)
     keyboard = KeyboardBuilder.build_expense_created_keyboard(template_id)
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     logger.info(f"Created expense from template {template_id} for user {user_id}")
     
@@ -692,7 +693,7 @@ async def qe_create_start(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     message = MessageBuilder.build_category_selection_message(template_data.family_name)
     keyboard = KeyboardBuilder.build_category_selection_keyboard(categories)
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.CREATE_SELECT_CATEGORY
 
@@ -718,7 +719,7 @@ async def qe_category_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     
     message = MessageBuilder.build_amount_input_message(template_data.family_name)
     keyboard = KeyboardBuilder.build_simple_cancel_keyboard()
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.CREATE_ENTER_AMOUNT
 
@@ -746,7 +747,7 @@ async def qe_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     message = MessageBuilder.build_name_input_message(template_data.family_name, amount)
     keyboard = KeyboardBuilder.build_simple_cancel_keyboard()
-    await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await update.message.reply_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.CREATE_ENTER_NAME
 
@@ -778,7 +779,7 @@ async def qe_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         template_data.amount
     )
     keyboard = KeyboardBuilder.build_description_input_keyboard()
-    await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await update.message.reply_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.CREATE_ENTER_DESCRIPTION
 
@@ -835,9 +836,9 @@ async def qe_description_received(update: Update, context: ContextTypes.DEFAULT_
     keyboard = KeyboardBuilder.build_template_created_keyboard(template.id)
     
     if update.message:
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
+        await update.message.reply_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     else:
-        await update.callback_query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+        await update.callback_query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     logger.info(f"Created template '{template_data.name}' for user {user_id}")
     
@@ -872,7 +873,7 @@ async def qe_delete_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     message = MessageBuilder.build_delete_menu_message(template_data.family_name)
     keyboard = KeyboardBuilder.build_delete_menu_keyboard(templates)
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.SELECT_TEMPLATE
 

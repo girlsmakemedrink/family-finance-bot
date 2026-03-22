@@ -18,6 +18,7 @@ from telegram.ext import (
 )
 
 from bot.database import crud, get_db
+from bot.utils.constants import HTML_PARSE_MODE
 from bot.utils.formatters import format_amount, format_expense
 from bot.utils.helpers import (
     answer_query_safely as shared_answer_query_safely,
@@ -153,7 +154,7 @@ async def send_or_edit_message(
     update: Update,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    parse_mode: str = "HTML"
+    parse_mode: str = HTML_PARSE_MODE
 ) -> None:
     """Send new message or edit existing one."""
     # In real Telegram updates, message and callback_query are mutually exclusive.
@@ -447,7 +448,7 @@ async def search_type_selected(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
     
     keyboard = KeyboardBuilder.build_cancel_keyboard()
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.ENTER_QUERY
 
@@ -469,7 +470,7 @@ async def show_category_selection_for_search(update: Update, context: ContextTyp
     
     message = MessageBuilder.build_category_prompt(search_data.family_name)
     keyboard = KeyboardBuilder.build_category_selection_keyboard(categories)
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.ENTER_QUERY
 
@@ -549,27 +550,27 @@ async def search_query_received(update: Update, context: ContextTypes.DEFAULT_TY
     if result is None:
         error_msg = ErrorMessage.SEARCH_ERROR
         if is_callback:
-            await update.callback_query.edit_message_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
+            await update.callback_query.edit_message_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         else:
-            await update.message.reply_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
+            await update.message.reply_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         return ConversationHandler.END
     
     expenses, error_msg = result
     
     if error_msg:
         if is_callback:
-            await update.callback_query.edit_message_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
+            await update.callback_query.edit_message_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         else:
-            await update.message.reply_text(error_msg, parse_mode="HTML", reply_markup=keyboard)
+            await update.message.reply_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_results_message(search_data.family_name, expenses)
     keyboard = KeyboardBuilder.build_results_keyboard()
     
     if is_callback:
-        await update.callback_query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+        await update.callback_query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     else:
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
+        await update.message.reply_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationHandler.END
 

@@ -402,6 +402,15 @@ def get_home_button() -> InlineKeyboardMarkup:
     return build_inline_keyboard(buttons)
 
 
+def get_my_families_home_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard with "My families" and "Home" buttons."""
+    buttons = [
+        [("👨‍👩‍👧‍👦 Мои семьи", "my_families")],
+        [("🏠 Главное меню", "start")],
+    ]
+    return build_inline_keyboard(buttons)
+
+
 def get_expense_notification_keyboard() -> InlineKeyboardMarkup:
     """Get keyboard for expense notifications from family members.
     

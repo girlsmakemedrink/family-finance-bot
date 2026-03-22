@@ -19,8 +19,7 @@ from telegram.ext import (
 )
 
 from bot.database import CategoryTypeEnum, crud, get_db
-# CSV export removed - imports commented out
-# from bot.utils.export import generate_csv, generate_csv_filename
+from bot.utils.constants import ERROR_USER_NOT_REGISTERED, HTML_PARSE_MODE
 from bot.utils.formatters import (
     format_amount,
     format_category_summary,
@@ -85,7 +84,6 @@ class CallbackPattern:
     PAGE_NEXT = "page_next"
     PAGE_CURRENT = "page_current"
     MY_EXPORT = "my_export"
-    # MY_EXPORT_CSV = "my_export_csv"  # CSV export removed
     MY_EXPORT_GDOCS = "my_export_gdocs"
     MY_DETAILED_REPORT = "my_detailed_report"
     DETAILED_REPORT_TYPE_PREFIX = "dr_type_"
@@ -100,7 +98,6 @@ class CallbackPattern:
     FAMILY_PAGE_NEXT = "family_page_next"
     FAMILY_PAGE_CURRENT = "family_page_current"
     FAMILY_EXPORT = "family_export"
-    # FAMILY_EXPORT_CSV = "family_export_csv"  # CSV export removed
     FAMILY_EXPORT_GDOCS = "family_export_gdocs"
     FAMILY_DETAILED_REPORT = "family_detailed_report"
     CREATE_FAMILY = "create_family"
@@ -157,7 +154,7 @@ class Emoji:
 
 class ErrorMessage:
     """Error messages."""
-    NOT_REGISTERED = f"{Emoji.ERROR} Вы не зарегистрированы. Используйте команду /start для регистрации."
+    NOT_REGISTERED = ERROR_USER_NOT_REGISTERED
     NO_FAMILIES = f"{Emoji.ERROR} Вы не состоите ни в одной семье.\n\nСначала создайте семью или присоединитесь к существующей."
     NO_CATEGORIES = f"{Emoji.ERROR} Категории расходов не найдены.\n\nОбратитесь к администратору для настройки категорий."
     FAMILY_NOT_FOUND = f"{Emoji.ERROR} Семья не найдена."
@@ -302,7 +299,7 @@ async def edit_message_text_safely(
     query,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    parse_mode: Optional[str] = "HTML"
+    parse_mode: Optional[str] = HTML_PARSE_MODE
 ):
     """Edit callback message and ignore Telegram 'message is not modified' errors."""
     try:
@@ -322,7 +319,7 @@ async def send_or_edit_message(
     update: Update,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    parse_mode: Optional[str] = "HTML"
+    parse_mode: Optional[str] = HTML_PARSE_MODE
 ) -> None:
     """Send new message or edit existing one based on update type."""
     if update.message:
@@ -899,7 +896,7 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         category.name
     )
     keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
-    await edit_message_text_safely(query, message, parse_mode="HTML", reply_markup=keyboard)
+    await edit_message_text_safely(query, message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     logger.info(f"User selected category {category_id} ({category.name}) for expense")
     return ConversationState.ENTER_AMOUNT
@@ -921,7 +918,7 @@ async def create_category_during_expense_start(update: Update, context: ContextT
     await edit_message_text_safely(
         query,
         message,
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=keyboard
     )
     
@@ -996,7 +993,7 @@ async def create_category_name_received(update: Update, context: ContextTypes.DE
         "Теперь выберите иконку для категории из списка ниже "
         "или отправьте свою (любой эмодзи):"
     )
-    await update.message.reply_text(message, reply_markup=keyboard, parse_mode="HTML")
+    await update.message.reply_text(message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     logger.info(f"User entered new category name: {name}")
     return ConversationState.CREATE_CATEGORY_EMOJI
@@ -1076,11 +1073,11 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
         await edit_message_text_safely(
             update.callback_query,
             success_msg,
-            parse_mode="HTML",
+            parse_mode=HTML_PARSE_MODE,
             reply_markup=keyboard
         )
     else:
-        await update.message.reply_text(success_msg, parse_mode="HTML", reply_markup=keyboard)
+        await update.message.reply_text(success_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     logger.info(f"Created category {category.id} ({category_name}) during expense addition")
     return ConversationState.ENTER_AMOUNT
@@ -1153,7 +1150,7 @@ async def amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     sent_message = await update.message.reply_text(
         message,
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=reply_markup
     )
 
@@ -1223,13 +1220,13 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
         sent_message = await edit_message_text_safely(
             update.callback_query,
             message,
-            parse_mode="HTML",
+            parse_mode=HTML_PARSE_MODE,
             reply_markup=reply_markup
         )
     else:
         sent_message = await update.message.reply_text(
             message,
-            parse_mode="HTML",
+            parse_mode=HTML_PARSE_MODE,
             reply_markup=reply_markup
         )
     
@@ -1614,7 +1611,7 @@ async def pagination_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"{Emoji.CALENDAR} Период: {period_name}\n\n"
                 f"📊 Откройте файл в браузере для просмотра красиво оформленного отчета"
             ),
-            parse_mode='HTML'
+            parse_mode=HTML_PARSE_MODE
         )
         
         await query.edit_message_text(
@@ -2018,7 +2015,7 @@ async def family_pagination_handler(update: Update, context: ContextTypes.DEFAUL
                 f"{Emoji.CALENDAR} Период: {period_name}\n\n"
                 f"📊 Откройте файл в браузере для просмотра красиво оформленного отчета"
             ),
-            parse_mode='HTML'
+            parse_mode=HTML_PARSE_MODE
         )
         
         await query.edit_message_text(

@@ -18,6 +18,7 @@ from telegram.ext import (
 )
 
 from bot.database import CategoryTypeEnum, crud, get_db
+from bot.utils.constants import ERROR_USER_NOT_REGISTERED, HTML_PARSE_MODE
 from bot.utils.formatters import format_amount
 from bot.utils.helpers import (
     answer_query_safely as shared_answer_query_safely,
@@ -84,7 +85,7 @@ class Emoji:
 
 class ErrorMessage:
     """Error messages."""
-    NOT_REGISTERED = f"{Emoji.ERROR} Вы не зарегистрированы. Используйте команду /start для регистрации."
+    NOT_REGISTERED = ERROR_USER_NOT_REGISTERED
     NO_FAMILIES = f"{Emoji.ERROR} Вы не состоите ни в одной семье.\n\nСначала создайте семью или присоединитесь к существующей."
     NO_CATEGORIES = f"{Emoji.ERROR} Категории не найдены.\n\nОбратитесь к администратору для настройки категорий."
     FAMILY_NOT_FOUND = f"{Emoji.ERROR} Семья не найдена."
@@ -160,7 +161,7 @@ async def send_or_edit_message(
     update: Update,
     message: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    parse_mode: Optional[str] = "HTML",
+    parse_mode: Optional[str] = HTML_PARSE_MODE,
 ) -> None:
     """Send or edit message depending on update type."""
     # In real Telegram updates, message and callback_query are mutually exclusive.
@@ -471,7 +472,7 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         income_data.category_name
     )
     keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
-    await query.edit_message_text(message, reply_markup=keyboard, parse_mode="HTML")
+    await query.edit_message_text(message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.ENTER_AMOUNT
 
@@ -570,7 +571,7 @@ async def _save_income(update: Update, context: ContextTypes.DEFAULT_TYPE, incom
     message = MessageBuilder.build_income_created_message(income_data, income, user)
     reply_markup = get_add_another_income_keyboard()
     
-    await send_or_edit_message(update, message, parse_mode="HTML", reply_markup=reply_markup)
+    await send_or_edit_message(update, message, parse_mode=HTML_PARSE_MODE, reply_markup=reply_markup)
     
     income_data.clear_from_context(context)
     return ConversationHandler.END

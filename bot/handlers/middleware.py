@@ -7,6 +7,8 @@ from typing import Any, Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from bot.utils.constants import HTML_PARSE_MODE
+
 logger = logging.getLogger(__name__)
 
 
@@ -183,7 +185,7 @@ async def _send_user_error_message(update: Update) -> None:
     )
     
     try:
-        await update.effective_message.reply_text(error_text, parse_mode="HTML")
+        await update.effective_message.reply_text(error_text, parse_mode=HTML_PARSE_MODE)
     except Exception as e:
         logger.error(f"Error sending error message to user: {e}")
 

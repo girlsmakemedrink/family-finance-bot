@@ -14,6 +14,7 @@ from bot.database import crud, get_db
 from bot.utils.constants import (
     CURRENCY_MAPPING,
     DATE_FORMAT_MAPPING,
+    HTML_PARSE_MODE,
     TIME_MAPPING,
     TIMEZONE_MAPPING,
 )
@@ -41,8 +42,6 @@ def _create_settings_text(user) -> str:
     Returns:
         Formatted settings text
     """
-    from bot.utils.formatters import format_amount
-    
     text = (
         "⚙️ <b>Настройки</b>\n\n"
         f"💱 <b>Валюта:</b> {user.currency}\n"
@@ -170,13 +169,13 @@ async def settings_command(
             await update.callback_query.answer()
             await message.edit_text(
                 settings_text,
-                parse_mode="HTML",
+                parse_mode=HTML_PARSE_MODE,
                 reply_markup=keyboard
             )
         else:
             await message.reply_text(
                 settings_text,
-                parse_mode="HTML",
+                parse_mode=HTML_PARSE_MODE,
                 reply_markup=keyboard
             )
 
@@ -209,7 +208,7 @@ async def settings_currency_callback(
     
     await update.callback_query.message.edit_text(
         text,
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=keyboard
     )
 
@@ -272,7 +271,7 @@ async def settings_timezone_callback(
     
     await update.callback_query.message.edit_text(
         text,
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=keyboard
     )
 
@@ -335,7 +334,7 @@ async def settings_date_format_callback(
     
     await update.callback_query.message.edit_text(
         text,
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=keyboard
     )
 
@@ -405,7 +404,7 @@ async def settings_monthly_summary_callback(
     
     await update.callback_query.message.edit_text(
         text,
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=keyboard
     )
 

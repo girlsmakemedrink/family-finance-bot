@@ -9,6 +9,8 @@ from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+from bot.utils.constants import HTML_PARSE_MODE
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +42,25 @@ async def safe_edit_message(query, text: str, **kwargs):
             raise
         # If message is not modified, just answer the callback query
         await query.answer()
+
+
+def split_text_by_lines(text: str, max_length: int) -> list[str]:
+    """Split text into chunks by line boundaries with max length limit."""
+    parts: list[str] = []
+    current_part = ""
+
+    for line in text.split('\n'):
+        if len(current_part) + len(line) + 1 > max_length:
+            if current_part:
+                parts.append(current_part)
+            current_part = line + '\n'
+        else:
+            current_part += line + '\n'
+
+    if current_part:
+        parts.append(current_part)
+
+    return parts
 
 
 async def end_conversation_silently(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -419,7 +440,7 @@ async def notify_expense_to_family(
                 await bot.send_message(
                     chat_id=user.telegram_id,
                     text=message,
-                    parse_mode="HTML",
+                    parse_mode=HTML_PARSE_MODE,
                     reply_markup=reply_markup
                 )
                 logger.info(
@@ -497,7 +518,7 @@ async def notify_income_to_family(
                 await bot.send_message(
                     chat_id=user.telegram_id,
                     text=message,
-                    parse_mode="HTML",
+                    parse_mode=HTML_PARSE_MODE,
                     reply_markup=reply_markup
                 )
                 logger.info(

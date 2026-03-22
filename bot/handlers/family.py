@@ -23,6 +23,7 @@ from bot.utils.constants import (
     ERROR_USER_NOT_REGISTERED,
     FAMILY_NAME_MAX_LENGTH,
     FAMILY_NAME_MIN_LENGTH,
+    HTML_PARSE_MODE,
     INVITE_CODE_MAX_LENGTH,
     INVITE_CODE_MIN_LENGTH,
     MSG_ALREADY_MEMBER,
@@ -36,7 +37,12 @@ from bot.utils.constants import (
 )
 from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
 from bot.utils.formatters import format_amount
-from bot.utils.keyboards import add_navigation_buttons, get_main_menu_keyboard, get_home_button
+from bot.utils.keyboards import (
+    add_navigation_buttons,
+    get_home_button,
+    get_main_menu_keyboard,
+    get_my_families_home_keyboard,
+)
 from bot.utils.message_utils import (
     MessageHandler as MsgHandler,
     UserDataExtractor,
@@ -347,7 +353,7 @@ async def create_family_name_received(
             
             await update.message.reply_text(
                 success_message,
-                parse_mode="HTML",
+                parse_mode=HTML_PARSE_MODE,
                 reply_markup=reply_markup
             )
             
@@ -445,7 +451,7 @@ async def join_family_code_received(
                 keyboard = get_home_button()
                 await update.message.reply_text(
                     MSG_ALREADY_MEMBER.format(family_name=family.name),
-                    parse_mode="HTML",
+                    parse_mode=HTML_PARSE_MODE,
                     reply_markup=keyboard
                 )
                 return ConversationHandler.END
@@ -467,7 +473,7 @@ async def join_family_code_received(
             
             await update.message.reply_text(
                 success_message,
-                parse_mode="HTML",
+                parse_mode=HTML_PARSE_MODE,
                 reply_markup=reply_markup
             )
             
@@ -924,12 +930,7 @@ async def leave_family_execute(
                     "Используйте /my_families для просмотра оставшихся семей."
                 )
                 
-                keyboard = [
-                    [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-                ]
-                
-                reply_markup = _markup(keyboard)
+                reply_markup = get_my_families_home_keyboard()
                 
                 await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
                 
@@ -1072,12 +1073,7 @@ async def delete_family_execute(
                     "Используйте /my_families для просмотра оставшихся семей."
                 )
                 
-                keyboard = [
-                    [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-                ]
-                
-                reply_markup = _markup(keyboard)
+                reply_markup = get_my_families_home_keyboard()
                 
                 await MsgHandler.send_or_edit(update, message, reply_markup=reply_markup)
                 
