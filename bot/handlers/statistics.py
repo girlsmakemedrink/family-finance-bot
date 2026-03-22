@@ -77,6 +77,13 @@ MAIN_NAV_PATTERN_STATS_FLOW = (
     "search|my_families|create_family|join_family|family_settings)$"
 )
 
+MAX_MONTHS_TO_SHOW = 12
+MAX_USER_OPERATIONS_PREVIEW = 10
+MAX_CATEGORY_OPERATIONS_PREVIEW = 20
+MAX_OPERATION_DESCRIPTION_LENGTH = 40
+DESCRIPTION_ELLIPSIS = "..."
+NO_TEXT_IN_MESSAGE_ERROR_TEXT = "no text in the message"
+
 
 class StatsType:
     """Statistics type identifiers."""
@@ -222,8 +229,7 @@ def format_period_name(year: int, month: Optional[int] = None) -> str:
     """
     if month:
         return format_month_year(month, year)
-    else:
-        return f"{year} год"
+    return f"{year} год"
 
 
 def extract_id_from_callback(callback_data: str) -> int:
@@ -234,6 +240,15 @@ def extract_id_from_callback(callback_data: str) -> int:
 async def handle_db_operation(operation, error_message: str):
     """Handle database operations with error handling."""
     return await shared_handle_db_operation(operation, error_message)
+
+
+async def show_home_error(query, message_text: str, parse_mode: Optional[str] = None) -> None:
+    """Edit callback message with home keyboard and optional parse mode."""
+    keyboard = get_home_button()
+    if parse_mode:
+        await query.edit_message_text(message_text, reply_markup=keyboard, parse_mode=parse_mode)
+        return
+    await query.edit_message_text(message_text, reply_markup=keyboard)
 
 
 # ============================================================================
@@ -350,40 +365,49 @@ def format_detailed_statistics_message(
 
                         for expense in expenses:
                             user_id = expense['user_id']
-                            user_name = expense['user_name']
                             user_expenses[user_id].append(expense)
                             user_totals[user_id] += expense['amount']
-                            if 'user_name' not in user_expenses[user_id][0]:
-                                user_expenses[user_id][0]['stored_user_name'] = user_name
 
                         for _, user_expense_list in user_expenses.items():
                             user_name = user_expense_list[0]['user_name']
                             user_total = user_totals[user_expense_list[0]['user_id']]
                             lines.append(f"   👤 <b>{user_name}:</b> {format_amount(user_total)}")
 
-                            for expense in user_expense_list[:10]:
+                            for expense in user_expense_list[:MAX_USER_OPERATIONS_PREVIEW]:
                                 date_str = format_date(expense['date'])
                                 amount_str = format_amount(expense['amount'])
                                 desc = expense['description'] or "—"
-                                description = desc[:40] + "..." if len(desc) > 40 else desc
+                                description = (
+                                    desc[:MAX_OPERATION_DESCRIPTION_LENGTH] + DESCRIPTION_ELLIPSIS
+                                    if len(desc) > MAX_OPERATION_DESCRIPTION_LENGTH
+                                    else desc
+                                )
                                 lines.append(f"      • {date_str}: {amount_str}")
                                 lines.append(f"        {description}")
 
-                            if len(user_expense_list) > 10:
-                                lines.append(f"      <i>... и еще {len(user_expense_list) - 10} операций</i>")
+                            if len(user_expense_list) > MAX_USER_OPERATIONS_PREVIEW:
+                                lines.append(
+                                    f"      <i>... и еще {len(user_expense_list) - MAX_USER_OPERATIONS_PREVIEW} операций</i>"
+                                )
                             lines.append("")
                     else:
                         lines.append("   <i>Детализация:</i>")
-                        for expense in expenses[:20]:
+                        for expense in expenses[:MAX_CATEGORY_OPERATIONS_PREVIEW]:
                             date_str = format_date(expense['date'])
                             amount_str = format_amount(expense['amount'])
                             desc = expense['description'] or ("Без описания" if not is_income else "—")
-                            description = desc[:40] + "..." if len(desc) > 40 else desc
+                            description = (
+                                desc[:MAX_OPERATION_DESCRIPTION_LENGTH] + DESCRIPTION_ELLIPSIS
+                                if len(desc) > MAX_OPERATION_DESCRIPTION_LENGTH
+                                else desc
+                            )
                             lines.append(f"   • {date_str}: {amount_str}")
                             lines.append(f"     {description}")
                             lines.append("")
-                        if len(expenses) > 20:
-                            lines.append(f"   <i>... и еще {len(expenses) - 20} операций</i>")
+                        if len(expenses) > MAX_CATEGORY_OPERATIONS_PREVIEW:
+                            lines.append(
+                                f"   <i>... и еще {len(expenses) - MAX_CATEGORY_OPERATIONS_PREVIEW} операций</i>"
+                            )
                             lines.append("")
 
     append_section("Доходы по категориям:", income_stats, is_income=True)
@@ -450,8 +474,8 @@ class KeyboardBuilder:
     def build_month_selection_keyboard(months: List[Tuple[int, int]], context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for month selection."""
         keyboard = []
-        # Show last 12 months, most recent first
-        for year, month in reversed(months[-12:]):
+        # Show recent months first.
+        for year, month in reversed(months[-MAX_MONTHS_TO_SHOW:]):
             month_name = format_month_year(month, year)
             callback_data = f"{CallbackPattern.STATS_MONTH_PREFIX}{year}_{month}"
             keyboard.append([InlineKeyboardButton(month_name, callback_data=callback_data)])
@@ -521,7 +545,7 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             try:
                 await query.message.edit_text(message_text, reply_markup=keyboard)
             except BadRequest as e:
-                if "no text in the message" in str(e).lower():
+                if NO_TEXT_IN_MESSAGE_ERROR_TEXT in str(e).lower():
                     await query.message.reply_text(message_text, reply_markup=keyboard)
                 else:
                     raise
@@ -537,7 +561,7 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             await query.message.edit_text(message_text, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
         except BadRequest as e:
             # Handle case when message has no text (e.g., media message with caption)
-            if "no text in the message" in str(e).lower():
+            if NO_TEXT_IN_MESSAGE_ERROR_TEXT in str(e).lower():
                 await query.message.reply_text(message_text, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
             else:
                 raise
@@ -573,8 +597,7 @@ async def stats_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     families = await handle_db_operation(get_families, "Error getting families for stats")
     
     if not families:
-        keyboard = get_home_button()
-        await query.edit_message_text(ErrorMessage.NO_FAMILIES, reply_markup=keyboard)
+        await show_home_error(query, ErrorMessage.NO_FAMILIES)
         return ConversationHandler.END
     
     # If only one family, skip family selection
@@ -613,8 +636,7 @@ async def stats_select_family(update: Update, context: ContextTypes.DEFAULT_TYPE
     family = await handle_db_operation(get_family, f"Error getting family {family_id}")
     
     if not family:
-        keyboard = get_home_button()
-        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
+        await show_home_error(query, ErrorMessage.FAMILY_NOT_FOUND)
         return ConversationHandler.END
     
     stats_data = StatsData.from_context(context)
@@ -672,15 +694,13 @@ async def stats_select_period_type(update: Update, context: ContextTypes.DEFAULT
     periods_data = await handle_db_operation(get_periods, "Error getting available periods")
     
     if not periods_data:
-        keyboard = get_home_button()
-        await query.edit_message_text(ErrorMessage.STATS_ERROR, reply_markup=keyboard)
+        await show_home_error(query, ErrorMessage.STATS_ERROR)
         return ConversationHandler.END
     
     if period_type == PeriodType.MONTH:
         months = periods_data['months']
         if not months:
-            keyboard = get_home_button()
-            await query.edit_message_text(ErrorMessage.NO_PERIODS, reply_markup=keyboard)
+            await show_home_error(query, ErrorMessage.NO_PERIODS)
             return ConversationHandler.END
         
         message_text = f"{Emoji.CALENDAR} Выберите месяц для просмотра статистики:"
@@ -689,8 +709,7 @@ async def stats_select_period_type(update: Update, context: ContextTypes.DEFAULT
     else:
         years = periods_data['years']
         if not years:
-            keyboard = get_home_button()
-            await query.edit_message_text(ErrorMessage.NO_PERIODS, reply_markup=keyboard)
+            await show_home_error(query, ErrorMessage.NO_PERIODS)
             return ConversationHandler.END
         
         message_text = f"{Emoji.CALENDAR} Выберите год для просмотра статистики:"
@@ -789,8 +808,7 @@ async def show_basic_statistics(query, context: ContextTypes.DEFAULT_TYPE) -> in
     stats = await handle_db_operation(get_statistics, "Error getting statistics")
     
     if stats is None:
-        keyboard = get_home_button()
-        await query.edit_message_text(ErrorMessage.STATS_ERROR, reply_markup=keyboard)
+        await show_home_error(query, ErrorMessage.STATS_ERROR)
         return ConversationHandler.END
     
     period_name = format_period_name(stats_data.year, stats_data.month)
@@ -845,8 +863,7 @@ async def stats_show_detailed_report(update: Update, context: ContextTypes.DEFAU
     income_stats = await handle_db_operation(get_income_statistics, "Error getting income statistics")
     
     if stats is None:
-        keyboard = get_home_button()
-        await query.edit_message_text(ErrorMessage.STATS_ERROR, reply_markup=keyboard)
+        await show_home_error(query, ErrorMessage.STATS_ERROR)
         return ConversationHandler.END
     
     period_name = format_period_name(stats_data.year, stats_data.month)

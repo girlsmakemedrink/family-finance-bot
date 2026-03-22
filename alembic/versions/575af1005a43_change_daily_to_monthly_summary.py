@@ -32,14 +32,14 @@ def upgrade() -> None:
     try:
         op.execute('UPDATE users SET monthly_summary_enabled = daily_summary_enabled')
         op.execute('UPDATE users SET monthly_summary_time = daily_summary_time')
-    except:
+    except Exception:
         pass  # Columns might not exist yet
     
     # Drop old columns
     try:
         op.drop_column('users', 'daily_summary_enabled')
         op.drop_column('users', 'daily_summary_time')
-    except:
+    except Exception:
         pass  # Columns might not exist
     # ### end Alembic commands ###
 
@@ -54,7 +54,7 @@ def downgrade() -> None:
     try:
         op.execute('UPDATE users SET daily_summary_enabled = monthly_summary_enabled')
         op.execute('UPDATE users SET daily_summary_time = monthly_summary_time')
-    except:
+    except Exception:
         pass
     
     op.drop_column('users', 'monthly_summary_time')

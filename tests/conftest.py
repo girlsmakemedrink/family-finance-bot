@@ -10,8 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.orm import sessionmaker
 
 from bot.database.models import Base, User, Family, FamilyMember, Category, Expense
-from bot.database import init_database
-from config.settings import settings
 
 
 @pytest.fixture(scope="session")

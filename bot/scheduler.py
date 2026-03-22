@@ -15,6 +15,11 @@ from bot.utils.helpers import split_text_by_lines
 
 logger = logging.getLogger(__name__)
 
+INTER_PART_MESSAGE_DELAY_SECONDS = 0.1
+SUMMARY_SEND_DELAY_SECONDS = 0.5
+SCHEDULER_CHECK_INTERVAL_SECONDS = 3600
+SCHEDULER_RETRY_INTERVAL_SECONDS = 60
+
 
 async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str = HTML_PARSE_MODE) -> None:
     """Send a message, splitting it into multiple messages if it exceeds Telegram's limit.
@@ -34,7 +39,7 @@ async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str =
     # Send each part
     for part in parts:
         await bot.send_message(chat_id=chat_id, text=part.strip(), parse_mode=parse_mode)
-        await asyncio.sleep(0.1)  # Small delay between messages
+        await asyncio.sleep(INTER_PART_MESSAGE_DELAY_SECONDS)  # Small delay between messages
 
 
 async def send_monthly_summary(bot: Bot, user, summary_data: dict, month_name: str, family_name: str = None) -> None:
@@ -204,7 +209,7 @@ async def check_and_send_monthly_summaries(bot: Bot) -> None:
                         sent_count += 1
                         
                         # Small delay to avoid rate limiting
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(SUMMARY_SEND_DELAY_SECONDS)
                         
                     except Exception as e:
                         logger.error(
@@ -238,12 +243,12 @@ async def run_scheduler(bot: Bot) -> None:
             await check_and_send_monthly_summaries(bot)
             
             # Sleep for 1 hour
-            await asyncio.sleep(3600)
+            await asyncio.sleep(SCHEDULER_CHECK_INTERVAL_SECONDS)
             
         except Exception as e:
             logger.error(f"Error in scheduler loop: {e}", exc_info=True)
             # Sleep a bit before retrying
-            await asyncio.sleep(60)
+            await asyncio.sleep(SCHEDULER_RETRY_INTERVAL_SECONDS)
 
 
 async def start_scheduler(bot: Bot) -> asyncio.Task:

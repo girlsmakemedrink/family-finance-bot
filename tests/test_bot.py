@@ -1,7 +1,6 @@
 """Basic tests for the bot."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from bot import FamilyFinanceBot
 

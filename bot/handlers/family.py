@@ -27,17 +27,21 @@ from bot.utils.constants import (
     INVITE_CODE_MAX_LENGTH,
     INVITE_CODE_MIN_LENGTH,
     MSG_ALREADY_MEMBER,
-    MSG_FAMILY_NAME_TOO_LONG,
-    MSG_FAMILY_NAME_TOO_SHORT,
     MSG_FAMILY_NOT_FOUND,
     MSG_INVITE_CODE_INVALID,
     MSG_WITHOUT_FAMILIES,
     MSG_WITH_FAMILIES,
     MSG_QUICK_ACTIONS_FOOTER,
 )
-from bot.utils.helpers import end_conversation_silently, end_conversation_and_route, get_user_id
+from bot.utils.helpers import (
+    end_conversation_silently,
+    end_conversation_and_route,
+    extract_id_from_callback,
+    get_user_id,
+)
 from bot.utils.formatters import format_amount
 from bot.utils.keyboards import (
+    MAIN_MENU_CALLBACK,
     add_navigation_buttons,
     get_home_button,
     get_main_menu_keyboard,
@@ -45,10 +49,8 @@ from bot.utils.keyboards import (
 )
 from bot.utils.message_utils import (
     MessageHandler as MsgHandler,
-    UserDataExtractor,
     ValidationHelper,
     format_families_list,
-    get_user_from_context_or_db,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,7 +180,7 @@ async def _get_user_id_or_error(
     Returns:
         User ID or None if not found
     """
-    user_id = await get_user_from_context_or_db(update, context)
+    user_id = await get_user_id(update, context)
     
     if not user_id:
         await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED)
@@ -347,7 +349,7 @@ async def create_family_name_received(
             keyboard = [
                 [_create_share_button(family)],
                 [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
+                [InlineKeyboardButton("🏠 Главное меню", callback_data=MAIN_MENU_CALLBACK)]
             ]
             reply_markup = _markup(keyboard)
             
@@ -467,7 +469,7 @@ async def join_family_code_received(
                     InlineKeyboardButton("💹 Добавить доход", callback_data="add_income")
                 ],
                 [InlineKeyboardButton("👨‍👩‍👧‍👦 Мои семьи", callback_data="my_families")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
+                [InlineKeyboardButton("🏠 Главное меню", callback_data=MAIN_MENU_CALLBACK)]
             ]
             reply_markup = _markup(keyboard)
             
@@ -621,14 +623,9 @@ def _create_no_families_message() -> str:
     )
 
 
-def _create_families_list_message(families, user_id, session) -> str:
+def _create_families_list_message() -> str:
     """Create message with list of user's families.
     
-    Args:
-        families: List of family objects
-        user_id: User ID
-        session: Database session
-        
     Returns:
         Formatted message text
     """
@@ -698,7 +695,7 @@ async def my_families_command(
         update: Telegram update object
         context: Telegram context object
     """
-    user_id = await get_user_from_context_or_db(update, context)
+    user_id = await get_user_id(update, context)
     if not user_id:
         await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED)
         return
@@ -714,7 +711,7 @@ async def my_families_command(
                     [InlineKeyboardButton("🔗 Присоединиться к семье", callback_data="join_family")]
                 ]
             else:
-                message = _create_families_list_message(families, user_id, session)
+                message = _create_families_list_message()
                 # Create buttons for each family
                 keyboard = []
                 for family in families:
@@ -760,9 +757,9 @@ async def view_family_details(
     await query.answer()
     
     # Extract family_id from callback_data
-    family_id = int(query.data.split("_")[-1])
+    family_id = extract_id_from_callback(query.data)
     
-    user_id = await get_user_from_context_or_db(update, context)
+    user_id = await get_user_id(update, context)
     if not user_id:
         keyboard = get_home_button()
         await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
@@ -847,9 +844,9 @@ async def leave_family_confirm(
     await query.answer()
     
     # Extract family_id from callback_data
-    family_id = int(query.data.split("_")[-1])
+    family_id = extract_id_from_callback(query.data)
     
-    user_id = await get_user_from_context_or_db(update, context)
+    user_id = await get_user_id(update, context)
     if not user_id:
         keyboard = get_home_button()
         await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
@@ -908,9 +905,9 @@ async def leave_family_execute(
     await query.answer()
     
     # Extract family_id from callback_data
-    family_id = int(query.data.split("_")[-1])
+    family_id = extract_id_from_callback(query.data)
     
-    user_id = await get_user_from_context_or_db(update, context)
+    user_id = await get_user_id(update, context)
     if not user_id:
         keyboard = get_home_button()
         await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
@@ -970,9 +967,9 @@ async def delete_family_confirm(
     await query.answer()
     
     # Extract family_id from callback_data
-    family_id = int(query.data.split("_")[-1])
+    family_id = extract_id_from_callback(query.data)
     
-    user_id = await get_user_from_context_or_db(update, context)
+    user_id = await get_user_id(update, context)
     if not user_id:
         keyboard = get_home_button()
         await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)
@@ -1043,9 +1040,9 @@ async def delete_family_execute(
     await query.answer()
     
     # Extract family_id from callback_data
-    family_id = int(query.data.split("_")[-1])
+    family_id = extract_id_from_callback(query.data)
     
-    user_id = await get_user_from_context_or_db(update, context)
+    user_id = await get_user_id(update, context)
     if not user_id:
         keyboard = get_home_button()
         await MsgHandler.send_or_edit(update, ERROR_USER_NOT_REGISTERED, reply_markup=keyboard)

@@ -1,7 +1,6 @@
 """Help command handler with detailed information."""
 
 import logging
-from typing import Dict, Callable, Awaitable
 
 from telegram import Update
 from telegram.ext import (

@@ -17,7 +17,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.database import crud, get_db
+from bot.database import crud
 from bot.utils.constants import HTML_PARSE_MODE
 from bot.utils.formatters import format_amount, format_expense
 from bot.utils.helpers import (
@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # CONSTANTS
 # ============================================================================
+
+SEARCH_RESULT_PREVIEW_LIMIT = 10
+SINGLE_DAY_DELTA = timedelta(days=1)
+DATE_INPUT_FORMAT = "%d.%m.%Y"
+RANGE_SEPARATOR = "-"
+
 
 class ConversationState(IntEnum):
     """Conversation states for search flow."""
@@ -256,12 +262,12 @@ class MessageBuilder:
             f"{Emoji.NOTE} Найдено: <b>{len(expenses)}</b>\n\n"
         )
         
-        for expense in expenses[:10]:
+        for expense in expenses[:SEARCH_RESULT_PREVIEW_LIMIT]:
             message += format_expense(expense) + "\n"
             message += f"{Emoji.USER} {expense.user.name}\n\n"
         
-        if len(expenses) > 10:
-            message += f"\n... и еще {len(expenses) - 10} расходов\n"
+        if len(expenses) > SEARCH_RESULT_PREVIEW_LIMIT:
+            message += f"\n... и еще {len(expenses) - SEARCH_RESULT_PREVIEW_LIMIT} расходов\n"
         
         total = sum(exp.amount for exp in expenses)
         message += f"\n{Emoji.MONEY} <b>Итого:</b> {format_amount(total)}"
@@ -475,6 +481,53 @@ async def show_category_selection_for_search(update: Update, context: ContextTyp
     return ConversationState.ENTER_QUERY
 
 
+def _parse_amount_query(query_text: str) -> tuple[Optional[Decimal], Optional[Decimal], Optional[str]]:
+    """Parse amount query and return min/max amounts or validation error."""
+    if RANGE_SEPARATOR in query_text:
+        parts = query_text.split(RANGE_SEPARATOR)
+        try:
+            return Decimal(parts[0].strip()), Decimal(parts[1].strip()), None
+        except (InvalidOperation, ValueError):
+            return None, None, ErrorMessage.INVALID_AMOUNT_FORMAT
+
+    try:
+        amount = Decimal(query_text)
+        return amount, amount, None
+    except (InvalidOperation, ValueError):
+        return None, None, ErrorMessage.INVALID_AMOUNT
+
+
+def _parse_date_query(query_text: str) -> tuple[Optional[datetime], Optional[datetime], Optional[str]]:
+    """Parse date query and return date range or validation error."""
+    try:
+        if RANGE_SEPARATOR in query_text and "." in query_text:
+            parts = query_text.split(RANGE_SEPARATOR)
+            date_from_str = parts[0].strip()
+            date_to_str = parts[1].strip()
+            current_year = datetime.now().year
+            date_from = datetime.strptime(f"{date_from_str}.{current_year}", DATE_INPUT_FORMAT)
+            date_to = datetime.strptime(f"{date_to_str}.{current_year}", DATE_INPUT_FORMAT)
+            return date_from, date_to + SINGLE_DAY_DELTA, None
+
+        date = datetime.strptime(query_text, DATE_INPUT_FORMAT)
+        return date, date + SINGLE_DAY_DELTA, None
+    except ValueError:
+        return None, None, ErrorMessage.INVALID_DATE_FORMAT
+
+
+async def _send_search_response(
+    update: Update,
+    is_callback: bool,
+    text: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> None:
+    """Send search response while preserving callback/message behavior."""
+    if is_callback:
+        await update.callback_query.edit_message_text(text, parse_mode=HTML_PARSE_MODE, reply_markup=reply_markup)
+        return
+    await update.message.reply_text(text, parse_mode=HTML_PARSE_MODE, reply_markup=reply_markup)
+
+
 async def search_query_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle search query input."""
     query_text = None
@@ -505,38 +558,18 @@ async def search_query_received(update: Update, context: ContextTypes.DEFAULT_TY
             search_params['query'] = query_text
         
         elif search_data.search_type == SearchType.AMOUNT:
-            if '-' in query_text:
-                parts = query_text.split('-')
-                try:
-                    search_params['min_amount'] = Decimal(parts[0].strip())
-                    search_params['max_amount'] = Decimal(parts[1].strip())
-                except (InvalidOperation, ValueError):
-                    return None, ErrorMessage.INVALID_AMOUNT_FORMAT
-            else:
-                try:
-                    amount = Decimal(query_text)
-                    search_params['min_amount'] = amount
-                    search_params['max_amount'] = amount
-                except (InvalidOperation, ValueError):
-                    return None, ErrorMessage.INVALID_AMOUNT
+            min_amount, max_amount, amount_error = _parse_amount_query(query_text)
+            if amount_error:
+                return None, amount_error
+            search_params['min_amount'] = min_amount
+            search_params['max_amount'] = max_amount
         
         elif search_data.search_type == SearchType.DATE:
-            try:
-                if '-' in query_text and '.' in query_text:
-                    parts = query_text.split('-')
-                    date_from_str = parts[0].strip()
-                    date_to_str = parts[1].strip()
-                    current_year = datetime.now().year
-                    date_from = datetime.strptime(f"{date_from_str}.{current_year}", "%d.%m.%Y")
-                    date_to = datetime.strptime(f"{date_to_str}.{current_year}", "%d.%m.%Y")
-                    search_params['date_from'] = date_from
-                    search_params['date_to'] = date_to + timedelta(days=1)
-                else:
-                    date = datetime.strptime(query_text, "%d.%m.%Y")
-                    search_params['date_from'] = date
-                    search_params['date_to'] = date + timedelta(days=1)
-            except ValueError:
-                return None, ErrorMessage.INVALID_DATE_FORMAT
+            date_from, date_to, date_error = _parse_date_query(query_text)
+            if date_error:
+                return None, date_error
+            search_params['date_from'] = date_from
+            search_params['date_to'] = date_to
         
         elif search_data.search_type == SearchType.CATEGORY:
             search_params['category_id'] = search_data.category_id
@@ -549,28 +582,19 @@ async def search_query_received(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard = get_home_button()
     if result is None:
         error_msg = ErrorMessage.SEARCH_ERROR
-        if is_callback:
-            await update.callback_query.edit_message_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
-        else:
-            await update.message.reply_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
+        await _send_search_response(update, is_callback, error_msg, keyboard)
         return ConversationHandler.END
     
     expenses, error_msg = result
     
     if error_msg:
-        if is_callback:
-            await update.callback_query.edit_message_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
-        else:
-            await update.message.reply_text(error_msg, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
+        await _send_search_response(update, is_callback, error_msg, keyboard)
         return ConversationHandler.END
     
     message = MessageBuilder.build_results_message(search_data.family_name, expenses)
     keyboard = KeyboardBuilder.build_results_keyboard()
     
-    if is_callback:
-        await update.callback_query.edit_message_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
-    else:
-        await update.message.reply_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
+    await _send_search_response(update, is_callback, message, keyboard)
     
     return ConversationHandler.END
 

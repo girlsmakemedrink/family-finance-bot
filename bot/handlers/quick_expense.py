@@ -18,7 +18,7 @@ from telegram.ext import (
 )
 
 from bot.database import crud
-from bot.utils.constants import HTML_PARSE_MODE
+from bot.utils.constants import HTML_PARSE_MODE, MAX_AMOUNT_DECIMAL
 from bot.utils.formatters import format_amount
 from bot.utils.helpers import (
     answer_query_safely as shared_answer_query_safely,
@@ -72,7 +72,7 @@ MAIN_NAV_PATTERN_QUICK_EXPENSE_FLOW = (
 
 class ValidationLimits:
     """Validation limits for user inputs."""
-    MAX_AMOUNT = Decimal('999999999.99')
+    MAX_AMOUNT = MAX_AMOUNT_DECIMAL
     MIN_AMOUNT = Decimal('0')
     MAX_NAME_LENGTH = 100
     MAX_DESCRIPTION_LENGTH = 500

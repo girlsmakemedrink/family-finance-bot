@@ -6,14 +6,14 @@ from decimal import Decimal
 from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram.ext import ContextTypes
 
 from bot.database import crud, get_db
 from bot.utils.constants import HTML_PARSE_MODE, TELEGRAM_MAX_MESSAGE_LENGTH
 from bot.utils.formatters import format_amount, format_date, format_month_year
 from bot.utils.charts import create_text_bar
 from bot.utils.helpers import get_user_id, split_text_by_lines
-from bot.utils.keyboards import get_home_button
+from bot.utils.keyboards import MAIN_MENU_CALLBACK, get_home_button
 from bot.handlers.expenses import CallbackPattern, ViewData
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,8 @@ ERROR_FETCH_DATA = "❌ Ошибка при получении данных"
 ERROR_REPORT_GENERATION = "❌ Ошибка при генерации отчета"
 MONTHLY_GENERATION_MESSAGE = "📊 Генерирую отчет..."
 YEARLY_GENERATION_MESSAGE = "📊 Генерирую годовой отчет..."
+FIRST_MONTH = 1
+LAST_MONTH = 12
 
 
 # ============================================================================
@@ -84,7 +86,7 @@ def _build_report_type_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📅 Отчет за месяц", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}month")],
         [InlineKeyboardButton("📆 Отчет за год", callback_data=f"{CallbackPattern.DETAILED_REPORT_TYPE_PREFIX}year")],
         [InlineKeyboardButton("🔙 Назад", callback_data=CallbackPattern.NAV_BACK)],
-        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data=MAIN_MENU_CALLBACK)],
     ]
     return _as_markup(keyboard)
 
@@ -202,6 +204,27 @@ async def _send_report_result(
     await send_long_message(update, message, reply_markup=get_home_button())
 
 
+async def _generate_and_send_report(
+    update: Update,
+    query,
+    is_family: bool,
+    user_id: Optional[int],
+    view_data: ViewData,
+    start_date: datetime,
+    end_date: datetime,
+    period_name: str,
+) -> None:
+    """Fetch report summary, render and send result."""
+    summary = await _fetch_report_summary(
+        is_family,
+        user_id,
+        view_data.family_id,
+        start_date,
+        end_date,
+    )
+    await _send_report_result(update, query, summary, period_name)
+
+
 async def _delete_query_message_safely(query) -> None:
     """Delete callback message safely when possible."""
     try:
@@ -221,7 +244,6 @@ def format_detailed_report(summary_data: dict, period_name: str) -> str:
         Formatted report message
     """
     total = summary_data.get('total', Decimal('0'))
-    count = summary_data.get('count', 0)
     by_category = summary_data.get('by_category', [])
     
     # Start with header and total
@@ -414,14 +436,16 @@ async def generate_monthly_report(update: Update, context: ContextTypes.DEFAULT_
     period_name = format_month_year(month, year)
     
     try:
-        summary = await _fetch_report_summary(
+        await _generate_and_send_report(
+            update,
+            query,
             is_family,
             user_id,
-            view_data.family_id,
+            view_data,
             start_date,
             end_date,
+            period_name,
         )
-        await _send_report_result(update, query, summary, period_name)
         
         logger.info(f"Sent detailed monthly report for {'family' if is_family else 'user'} {view_data.family_id}, period {period_name}")
         
@@ -446,20 +470,22 @@ async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     # Calculate date range for the year
-    start_date = datetime(year, 1, 1)
-    end_date = datetime(year, 12, 31, 23, 59, 59)
+    start_date = datetime(year, FIRST_MONTH, 1)
+    end_date = datetime(year, LAST_MONTH, 31, 23, 59, 59)
     
     period_name = f"{year} год"
     
     try:
-        summary = await _fetch_report_summary(
+        await _generate_and_send_report(
+            update,
+            query,
             is_family,
             user_id,
-            view_data.family_id,
+            view_data,
             start_date,
             end_date,
+            period_name,
         )
-        await _send_report_result(update, query, summary, period_name)
         
         logger.info(f"Sent detailed yearly report for {'family' if is_family else 'user'} {view_data.family_id}, period {period_name}")
         

@@ -1,10 +1,12 @@
 """Utility functions for working with Telegram messages and updates."""
 
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Optional, Tuple
 
 from telegram import InlineKeyboardMarkup, Message, Update
-from telegram.ext import ContextTypes
+
+from bot.utils.constants import HTML_PARSE_MODE, MAX_AMOUNT
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,7 @@ class MessageHandler:
     async def send_or_edit(
         update: Update,
         text: str,
-        parse_mode: str = "HTML",
+        parse_mode: str = HTML_PARSE_MODE,
         reply_markup: Optional[InlineKeyboardMarkup] = None
     ) -> Optional[Message]:
         """Send or edit message depending on update type.
@@ -148,7 +150,7 @@ class ValidationHelper:
         return True, None
 
     @staticmethod
-    def validate_amount(amount_str: str, max_value: str = "999999999.99") -> Tuple[bool, Optional[str], Optional[float]]:
+    def validate_amount(amount_str: str, max_value: str = MAX_AMOUNT) -> Tuple[bool, Optional[str], Optional[Decimal]]:
         """Validate amount input.
         
         Args:
@@ -158,8 +160,6 @@ class ValidationHelper:
         Returns:
             Tuple of (is_valid, error_message, decimal_value)
         """
-        from decimal import Decimal, InvalidOperation
-
         try:
             # Replace comma with dot for decimal separator
             amount_str = amount_str.strip().replace(',', '.')
@@ -175,22 +175,6 @@ class ValidationHelper:
             
         except (InvalidOperation, ValueError):
             return False, "❌ Неверный формат. Введите число (например: 5000 или 5000.50)", None
-
-
-async def get_user_from_context_or_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Get user ID from context or database.
-    
-    This is a helper function that reduces code duplication across handlers.
-    
-    Args:
-        update: Telegram update object
-        context: Telegram context object
-        
-    Returns:
-        User ID or None if not found
-    """
-    from bot.utils.helpers import get_user_id
-    return await get_user_id(update, context)
 
 
 def format_families_list(families) -> str:

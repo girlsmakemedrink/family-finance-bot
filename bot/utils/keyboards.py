@@ -10,6 +10,19 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.utils.navigation import NavigationManager
 
+MAIN_MENU_CALLBACK = "start"
+BACK_CALLBACK = "nav_back"
+HOME_BUTTON = ("🏠 Главное меню", MAIN_MENU_CALLBACK)
+
+
+def _append_home_button(
+    buttons: List[List[Tuple[str, str]]],
+    add_home: bool,
+) -> None:
+    """Append home-button row when requested."""
+    if add_home:
+        buttons.append([HOME_BUTTON])
+
 
 def build_inline_keyboard(
     buttons: List[List[Tuple[str, str]]],
@@ -67,13 +80,13 @@ def add_navigation_buttons(
     # Add "Back" button if requested and there's a previous state
     if show_back and has_previous:
         nav_buttons.append(
-            InlineKeyboardButton("◀️ Назад", callback_data="nav_back")
+            InlineKeyboardButton("◀️ Назад", callback_data=BACK_CALLBACK)
         )
     
     # Add "Home" button if requested
     if show_home:
         nav_buttons.append(
-            InlineKeyboardButton("🏠 Главное меню", callback_data="start")
+            InlineKeyboardButton(HOME_BUTTON[0], callback_data=HOME_BUTTON[1])
         )
     
     # Add navigation buttons as a separate row
@@ -122,9 +135,7 @@ def get_back_button(callback_data: str = "back", add_home: bool = True) -> Inlin
         InlineKeyboardMarkup with back button
     """
     buttons = [[("◀️ Назад", callback_data)]]
-    
-    if add_home:
-        buttons.append([("🏠 Главное меню", "start")])
+    _append_home_button(buttons, add_home)
     
     return build_inline_keyboard(buttons)
 
@@ -140,9 +151,7 @@ def get_cancel_button(callback_data: str = "cancel", add_home: bool = True) -> I
         InlineKeyboardMarkup with cancel button
     """
     buttons = [[("❌ Отмена", callback_data)]]
-    
-    if add_home:
-        buttons.append([("🏠 Главное меню", "start")])
+    _append_home_button(buttons, add_home)
     
     return build_inline_keyboard(buttons)
 
@@ -165,9 +174,7 @@ def get_confirmation_keyboard(
     buttons = [
         [("✅ Да", confirm_callback), ("❌ Нет", cancel_callback)]
     ]
-    
-    if add_home:
-        buttons.append([("🏠 Главное меню", "start")])
+    _append_home_button(buttons, add_home)
     
     return build_inline_keyboard(buttons)
 
@@ -231,7 +238,7 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
         [("📅 Формат даты", "settings_date_format")],
         [("📊 Месячная сводка", "settings_monthly_summary")],
         [("🔔 Уведомления об операциях", "settings_expense_notifications")],
-        [("🏠 Главное меню", "start")]
+        [HOME_BUTTON]
     ]
     return build_inline_keyboard(buttons)
 
@@ -306,7 +313,7 @@ def get_help_keyboard() -> InlineKeyboardMarkup:
         [("💰 Учет финансов", "help_expenses")],
         [("📊 Аналитика", "help_stats")],
         [("⚙️ Настройки", "help_settings")],
-        [("🏠 Главное меню", "start")]
+        [HOME_BUTTON]
     ]
     return build_inline_keyboard(buttons)
 
@@ -319,7 +326,7 @@ def get_add_another_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить еще расход", "add_expense")],
-        [("🏠 Главное меню", "start")]
+        [HOME_BUTTON]
     ]
     return build_inline_keyboard(buttons)
 
@@ -332,7 +339,7 @@ def get_add_another_income_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить еще доход", "add_income")],
-        [("🏠 Главное меню", "start")]
+        [HOME_BUTTON]
     ]
     return build_inline_keyboard(buttons)
 
@@ -349,7 +356,7 @@ def get_period_keyboard(prefix: str = "period") -> InlineKeyboardMarkup:
     buttons = [
         [("📅 Сегодня", f"{prefix}_today"), ("📅 Неделя", f"{prefix}_week")],
         [("📅 Месяц", f"{prefix}_month"), ("📅 Всё время", f"{prefix}_all")],
-        [("◀️ Назад", "start")]
+        [("◀️ Назад", MAIN_MENU_CALLBACK)]
     ]
     return build_inline_keyboard(buttons)
 
@@ -372,7 +379,7 @@ def get_family_selection_keyboard(
     for family_id, family_name in families:
         buttons.append([(f"👨‍👩‍👧 {family_name}", f"{callback_prefix}_{family_id}")])
     
-    buttons.append([("◀️ Назад", "start")])
+    buttons.append([("◀️ Назад", MAIN_MENU_CALLBACK)])
     
     return build_inline_keyboard(buttons)
 
@@ -398,7 +405,7 @@ def get_home_button() -> InlineKeyboardMarkup:
     Returns:
         InlineKeyboardMarkup with home button
     """
-    buttons = [[("🏠 Главное меню", "start")]]
+    buttons = [[HOME_BUTTON]]
     return build_inline_keyboard(buttons)
 
 
@@ -406,7 +413,7 @@ def get_my_families_home_keyboard() -> InlineKeyboardMarkup:
     """Get keyboard with "My families" and "Home" buttons."""
     buttons = [
         [("👨‍👩‍👧‍👦 Мои семьи", "my_families")],
-        [("🏠 Главное меню", "start")],
+        [HOME_BUTTON],
     ]
     return build_inline_keyboard(buttons)
 
@@ -422,7 +429,7 @@ def get_expense_notification_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить расход", "add_expense")],
-        [("🏠 Главное меню", "start")]
+        [HOME_BUTTON]
     ]
     return build_inline_keyboard(buttons)
 
@@ -438,7 +445,7 @@ def get_income_notification_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [("➕ Добавить доход", "add_income")],
-        [("🏠 Главное меню", "start")]
+        [HOME_BUTTON]
     ]
     return build_inline_keyboard(buttons)
 

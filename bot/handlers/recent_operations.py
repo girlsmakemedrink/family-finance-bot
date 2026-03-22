@@ -20,6 +20,11 @@ CALLBACK_RECENT_OPS = "recent_ops"
 RECENT_OPERATIONS_LIMIT = 10
 TRUNCATED_DESCRIPTION_LENGTH = 80
 RECENT_OPERATIONS_TITLE = "🕘 <b>Мои последние операции</b>"
+INCOME_OPERATION_TYPE = "income"
+INCOME_EMOJI = "💹"
+EXPENSE_EMOJI = "💸"
+INCOME_LABEL = "Доход"
+EXPENSE_LABEL = "Расход"
 
 
 async def _reply_or_edit(
@@ -30,18 +35,16 @@ async def _reply_or_edit(
     parse_mode: Optional[str] = None,
 ) -> None:
     """Reply to message or edit callback message with preserved branch order."""
+    message_kwargs = {"reply_markup": reply_markup}
+    if parse_mode is not None:
+        message_kwargs["parse_mode"] = parse_mode
+
     if query:
-        if parse_mode is None:
-            await query.edit_message_text(text, reply_markup=reply_markup)
-        else:
-            await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        await query.edit_message_text(text, **message_kwargs)
         return
 
     if update.message:
-        if parse_mode is None:
-            await update.message.reply_text(text, reply_markup=reply_markup)
-        else:
-            await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        await update.message.reply_text(text, **message_kwargs)
 
 
 def _pick_family_scope(
@@ -65,6 +68,13 @@ def _pick_family_scope(
         return ([int(family_ids[0])], families[0].name, int(family_ids[0]))
 
     return (family_ids, "Все семьи", None)
+
+
+def _get_operation_presentation(op_type: str) -> tuple[str, str]:
+    """Map operation type to visual representation."""
+    if op_type == INCOME_OPERATION_TYPE:
+        return INCOME_EMOJI, INCOME_LABEL
+    return EXPENSE_EMOJI, EXPENSE_LABEL
 
 
 async def recent_operations_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -123,11 +133,7 @@ async def recent_operations_show(update: Update, context: ContextTypes.DEFAULT_T
             else:
                 show_family_name = (single_family_id is None and len(family_ids) > 1)
                 for i, op in enumerate(operations, start=1):
-                    op_type = op.get("op_type")
-                    is_income = op_type == "income"
-
-                    kind_emoji = "💹" if is_income else "💸"
-                    kind_text = "Доход" if is_income else "Расход"
+                    kind_emoji, kind_text = _get_operation_presentation(op.get("op_type"))
 
                     amount_str = format_amount(op["amount"])
                     dt_str = format_datetime(op["date"])

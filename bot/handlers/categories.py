@@ -82,6 +82,9 @@ MAIN_NAV_PATTERN_CATEGORIES_FLOW = (
     "stats_start|quick_expense|search)$"
 )
 
+DELETE_CATEGORY_EXPENSE_COUNT_KEY = "delete_cat_expense_count"
+DELETE_CATEGORY_INCOME_COUNT_KEY = "delete_cat_income_count"
+
 
 class ValidationLimits:
     """Validation limits for category inputs."""
@@ -545,7 +548,7 @@ class KeyboardBuilder:
     def build_delete_with_expenses_keyboard(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
         """Build keyboard for delete action selection when category has expenses."""
         keyboard = [
-            [InlineKeyboardButton(f"📦 Переместить операции в другую категорию", callback_data=CallbackPattern.MOVETARGET_PREFIX + "select")],
+            [InlineKeyboardButton("📦 Переместить операции в другую категорию", callback_data=CallbackPattern.MOVETARGET_PREFIX + "select")],
             [InlineKeyboardButton(f"{Emoji.DELETE} Удалить категорию вместе с операциями", callback_data=CallbackPattern.DELETE_WITH_EXPENSES)]
         ]
         return KeyboardBuilder._wrap_with_navigation(keyboard, context)
@@ -1003,8 +1006,8 @@ async def delete_category_select(update: Update, context: ContextTypes.DEFAULT_T
         return ConversationHandler.END
     
     # Save counts to context
-    context.user_data['delete_cat_expense_count'] = expense_count
-    context.user_data['delete_cat_income_count'] = income_count
+    context.user_data[DELETE_CATEGORY_EXPENSE_COUNT_KEY] = expense_count
+    context.user_data[DELETE_CATEGORY_INCOME_COUNT_KEY] = income_count
     
     if expense_count + income_count > 0:
         # Show options: move or delete with expenses
@@ -1051,8 +1054,8 @@ async def delete_category_choose_move(update: Update, context: ContextTypes.DEFA
         return await crud.get_category_by_id(session, cat_data.category_id)
     
     category = await handle_db_operation(get_category, "Error getting category")
-    expense_count = context.user_data.get('delete_cat_expense_count', 0)
-    income_count = context.user_data.get('delete_cat_income_count', 0)
+    expense_count = context.user_data.get(DELETE_CATEGORY_EXPENSE_COUNT_KEY, 0)
+    income_count = context.user_data.get(DELETE_CATEGORY_INCOME_COUNT_KEY, 0)
     total_count = expense_count + income_count
     
     message = (
@@ -1220,8 +1223,8 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
         )
     
     cat_data.clear_from_context(context, "delete_cat")
-    context.user_data.pop('delete_cat_expense_count', None)
-    context.user_data.pop('delete_cat_income_count', None)
+    context.user_data.pop(DELETE_CATEGORY_EXPENSE_COUNT_KEY, None)
+    context.user_data.pop(DELETE_CATEGORY_INCOME_COUNT_KEY, None)
     return ConversationHandler.END
 
 

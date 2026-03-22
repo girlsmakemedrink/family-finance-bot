@@ -21,6 +21,7 @@ from bot.utils.helpers import (
     answer_query_safely as shared_answer_query_safely,
     end_conversation_silently,
     end_conversation_and_route,
+    extract_id_from_callback,
     handle_db_operation as shared_handle_db_operation,
 )
 from bot.utils.keyboards import (
@@ -368,7 +369,7 @@ async def family_settings_select_callback(update: Update, context: ContextTypes.
     if not update.callback_query or not update.effective_user:
         return
     
-    family_id = int(update.callback_query.data.split("_")[-1])
+    family_id = extract_id_from_callback(update.callback_query.data)
     telegram_id = update.effective_user.id
     
     async def get_user_and_session(session):

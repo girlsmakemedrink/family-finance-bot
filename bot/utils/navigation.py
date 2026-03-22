@@ -1,6 +1,6 @@
 """Navigation system for tracking user's navigation history."""
 
-from typing import Optional, List
+from typing import List, Optional
 from telegram import InlineKeyboardButton
 
 
@@ -51,8 +51,7 @@ class NavigationManager:
             return None
         
         # Remove current state
-        if history:
-            history.pop()
+        history.pop()
         
         # Return previous state (but don't remove it)
         return history[-1] if history else None
@@ -109,12 +108,12 @@ class NavigationManager:
         # Add "Back" button if there's a previous state
         if previous:
             row.append(
-                InlineKeyboardButton("◀️ Назад", callback_data=f"nav_back")
+                InlineKeyboardButton("◀️ Назад", callback_data="nav_back")
             )
         
         # Always add "Main Menu" button
         row.append(
-            InlineKeyboardButton("🏠 Главное меню", callback_data="start")
+            InlineKeyboardButton("🏠 Главное меню", callback_data=STATE_START)
         )
         
         if row:

@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 from telegram import Update
 from telegram.ext import ContextTypes
