@@ -1,7 +1,7 @@
 """Navigation handler for back button and state management."""
 
 import logging
-from typing import Dict, Callable, Awaitable, Optional
+from typing import Dict
 
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 # Handlers are imported lazily to avoid circular dependencies
 NAVIGATION_ROUTES: Dict[str, tuple[str, str]] = {
     STATE_START: ("bot.handlers.start", "start_callback"),
-    "start": ("bot.handlers.start", "start_callback"),
     "settings": ("bot.handlers.settings", "settings_command"),
     "help": ("bot.handlers.help", "help_command"),
     "categories": ("bot.handlers.categories", "categories_command"),

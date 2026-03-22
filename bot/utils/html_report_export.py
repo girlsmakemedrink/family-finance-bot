@@ -86,7 +86,6 @@ def _create_html_structure(
     
     # Calculate statistics
     remaining = budget - expense_total if budget else None
-    percentage = (expense_total / budget * 100) if budget and budget > 0 else 0
     savings_percentage = ((budget - expense_total) / budget * 100) if budget and budget > 0 else 0
 
     report_title = _get_report_title(period_name)
@@ -864,15 +863,15 @@ def _get_pie_interaction_script() -> str:
 """.strip()
 
 
-def _hsl_to_hex(h: float, s: float, l: float) -> str:
+def _hsl_to_hex(h: float, s: float, lightness: float) -> str:
     """Convert HSL to hex color (#RRGGBB)."""
     h = h % 360.0
     s = 0.0 if s < 0 else 1.0 if s > 1 else s
-    l = 0.0 if l < 0 else 1.0 if l > 1 else l
+    lightness = 0.0 if lightness < 0 else 1.0 if lightness > 1 else lightness
 
-    c = (1 - abs(2 * l - 1)) * s
+    c = (1 - abs(2 * lightness - 1)) * s
     x = c * (1 - abs(((h / 60.0) % 2) - 1))
-    m = l - c / 2
+    m = lightness - c / 2
 
     if 0 <= h < 60:
         r, g, b = c, x, 0
@@ -1113,7 +1112,6 @@ def _create_chart_section(categories: List[Dict], max_amount: Decimal, title: st
 
     # Center text display for hover info (with text truncation via CSS)
     # Max width for text is roughly inner_r * 2 - some padding
-    max_text_width = int((ring_r - ring_stroke / 2) * 1.6)
     center_text_html = f"""
         <!-- Center text display -->
         <text class="pie-center-text"

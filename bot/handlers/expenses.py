@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import IntEnum
-from typing import Optional, List, Dict, Tuple
+from typing import List, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest
@@ -19,7 +19,12 @@ from telegram.ext import (
 )
 
 from bot.database import CategoryTypeEnum, crud, get_db
-from bot.utils.constants import ERROR_USER_NOT_REGISTERED, HTML_PARSE_MODE
+from bot.utils.constants import (
+    ERROR_USER_NOT_REGISTERED,
+    HTML_PARSE_MODE,
+    MAX_AMOUNT_DECIMAL,
+    TELEGRAM_MESSAGE_NOT_MODIFIED_ERROR_TEXT,
+)
 from bot.utils.formatters import (
     format_amount,
     format_category_summary,
@@ -116,7 +121,7 @@ MAIN_NAV_PATTERN_FAMILY_FLOW = "^(start|categories|settings|help|add_expense|add
 
 class ValidationLimits:
     """Validation limits for inputs."""
-    MAX_AMOUNT = Decimal('999999999.99')
+    MAX_AMOUNT = MAX_AMOUNT_DECIMAL
     MIN_AMOUNT = Decimal('0')
     MAX_DESCRIPTION_LENGTH = 500
     ITEMS_PER_PAGE = 10
@@ -309,7 +314,7 @@ async def edit_message_text_safely(
             reply_markup=reply_markup
         )
     except BadRequest as e:
-        if "Message is not modified" in str(e):
+        if TELEGRAM_MESSAGE_NOT_MODIFIED_ERROR_TEXT in str(e):
             logger.debug("Skipped message edit because content/markup did not change")
             return query.message
         raise
@@ -688,13 +693,13 @@ class KeyboardBuilder:
         if is_personal:
             keyboard.extend([
                 [InlineKeyboardButton(f"{Emoji.MONEY} Добавить расход", callback_data=CallbackPattern.ADD_EXPENSE)],
-                [InlineKeyboardButton(f"📊 Детальный отчет", callback_data=CallbackPattern.MY_DETAILED_REPORT)],
+                [InlineKeyboardButton("📊 Детальный отчет", callback_data=CallbackPattern.MY_DETAILED_REPORT)],
                 [InlineKeyboardButton(f"{Emoji.REFRESH} Выбрать другой период", callback_data=CallbackPattern.MY_EXPENSES)],
                 [InlineKeyboardButton(f"{Emoji.FAMILY} Мои семьи", callback_data=CallbackPattern.MY_FAMILIES)]
             ])
         else:
             keyboard.extend([
-                [InlineKeyboardButton(f"📊 Детальный отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)],
+                [InlineKeyboardButton("📊 Детальный отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)],
                 [InlineKeyboardButton(f"{Emoji.MONEY} Добавить расход", callback_data=CallbackPattern.ADD_EXPENSE)],
                 [InlineKeyboardButton(f"{Emoji.REFRESH} Выбрать другой период", callback_data=CallbackPattern.FAMILY_EXPENSES)]
             ])
@@ -748,7 +753,7 @@ class KeyboardBuilder:
         
         # Action buttons
         keyboard.extend([
-            [InlineKeyboardButton(f"📊 Детальный отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)],
+            [InlineKeyboardButton("📊 Детальный отчет", callback_data=CallbackPattern.FAMILY_DETAILED_REPORT)],
             [InlineKeyboardButton(f"{Emoji.MONEY} Добавить расход", callback_data=CallbackPattern.ADD_EXPENSE)],
             [InlineKeyboardButton(f"{Emoji.REFRESH} Выбрать другой период", callback_data=CallbackPattern.FAMILY_EXPENSES)]
         ])

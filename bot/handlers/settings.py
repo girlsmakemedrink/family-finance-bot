@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -27,6 +27,9 @@ from bot.utils.keyboards import (
 )
 
 logger = logging.getLogger(__name__)
+
+ERROR_USER_NOT_FOUND_MESSAGE = "❌ Ошибка: пользователь не найден. Используйте /start для регистрации."
+ERROR_UNKNOWN_USER_MESSAGE = "❌ Пользователь не найден"
 
 
 # ============================================================================
@@ -54,7 +57,7 @@ def _create_settings_text(user) -> str:
     if user.monthly_summary_enabled and user.monthly_summary_time:
         text += f" (1-го числа в {user.monthly_summary_time})"
     
-    text += f"\n🔔 <b>Уведомления об операциях:</b> "
+    text += "\n🔔 <b>Уведомления об операциях:</b> "
     text += "✅ Включены" if user.expense_notifications_enabled else "❌ Выключены"
     
     text += "\n\nВыберите параметр для изменения:"
@@ -62,31 +65,17 @@ def _create_settings_text(user) -> str:
     return text
 
 
-async def _get_user_or_error(update: Update, message) -> Optional[object]:
-    """Get user from database or return None with error message.
-    
-    Args:
-        update: Telegram update object
-        message: Message object to reply to
-        
-    Returns:
-        User object or None if not found
-    """
-    if not update.effective_user:
-        return None
-    
-    telegram_id = update.effective_user.id
-    
-    async for session in get_db():
-        user = await crud.get_user_by_telegram_id(session, telegram_id)
-        
-        if not user:
-            await message.reply_text(
-                "❌ Ошибка: пользователь не найден. Используйте /start для регистрации."
-            )
-            return None
-        
-        return user
+async def _show_selection_menu(update: Update, text: str, reply_markup: InlineKeyboardMarkup) -> None:
+    """Show callback selection menu with unified formatting."""
+    if not update.callback_query or not update.callback_query.message:
+        return
+
+    await update.callback_query.answer()
+    await update.callback_query.message.edit_text(
+        text,
+        parse_mode=HTML_PARSE_MODE,
+        reply_markup=reply_markup,
+    )
 
 
 async def _update_user_setting(telegram_id: int, **kwargs) -> bool:
@@ -157,9 +146,7 @@ async def settings_command(
         user = await crud.get_user_by_telegram_id(session, telegram_id)
         
         if not user:
-            await message.reply_text(
-                "❌ Ошибка: пользователь не найден. Используйте /start для регистрации."
-            )
+            await message.reply_text(ERROR_USER_NOT_FOUND_MESSAGE)
             return
         
         settings_text = _create_settings_text(user)
@@ -196,21 +183,12 @@ async def settings_currency_callback(
     """
     if not update.callback_query or not update.callback_query.message:
         return
-    
-    await update.callback_query.answer()
-    
+
     text = (
         "💱 <b>Выбор валюты</b>\n\n"
         "Выберите валюту для отображения сумм:"
     )
-    
-    keyboard = get_currency_keyboard()
-    
-    await update.callback_query.message.edit_text(
-        text,
-        parse_mode=HTML_PARSE_MODE,
-        reply_markup=keyboard
-    )
+    await _show_selection_menu(update, text, get_currency_keyboard())
 
 
 async def currency_selection_callback(
@@ -240,7 +218,7 @@ async def currency_selection_callback(
         await update.callback_query.answer(f"✅ Валюта изменена на {currency}")
         await settings_command(update, context)
     else:
-        await update.callback_query.answer("❌ Пользователь не найден")
+        await update.callback_query.answer(ERROR_UNKNOWN_USER_MESSAGE)
 
 
 # ============================================================================
@@ -259,21 +237,12 @@ async def settings_timezone_callback(
     """
     if not update.callback_query or not update.callback_query.message:
         return
-    
-    await update.callback_query.answer()
-    
+
     text = (
         "🌍 <b>Выбор часового пояса</b>\n\n"
         "Выберите ваш часовой пояс:"
     )
-    
-    keyboard = get_timezone_keyboard()
-    
-    await update.callback_query.message.edit_text(
-        text,
-        parse_mode=HTML_PARSE_MODE,
-        reply_markup=keyboard
-    )
+    await _show_selection_menu(update, text, get_timezone_keyboard())
 
 
 async def timezone_selection_callback(
@@ -303,7 +272,7 @@ async def timezone_selection_callback(
         await update.callback_query.answer("✅ Часовой пояс изменен")
         await settings_command(update, context)
     else:
-        await update.callback_query.answer("❌ Пользователь не найден")
+        await update.callback_query.answer(ERROR_UNKNOWN_USER_MESSAGE)
 
 
 # ============================================================================
@@ -322,21 +291,12 @@ async def settings_date_format_callback(
     """
     if not update.callback_query or not update.callback_query.message:
         return
-    
-    await update.callback_query.answer()
-    
+
     text = (
         "📅 <b>Выбор формата даты</b>\n\n"
         "Выберите формат отображения дат:"
     )
-    
-    keyboard = get_date_format_keyboard()
-    
-    await update.callback_query.message.edit_text(
-        text,
-        parse_mode=HTML_PARSE_MODE,
-        reply_markup=keyboard
-    )
+    await _show_selection_menu(update, text, get_date_format_keyboard())
 
 
 async def date_format_selection_callback(
@@ -366,7 +326,7 @@ async def date_format_selection_callback(
         await update.callback_query.answer("✅ Формат даты изменен")
         await settings_command(update, context)
     else:
-        await update.callback_query.answer("❌ Пользователь не найден")
+        await update.callback_query.answer(ERROR_UNKNOWN_USER_MESSAGE)
 
 
 # ============================================================================
@@ -385,9 +345,7 @@ async def settings_monthly_summary_callback(
     """
     if not update.callback_query or not update.callback_query.message:
         return
-    
-    await update.callback_query.answer()
-    
+
     text = (
         "📊 <b>Месячная сводка расходов</b>\n\n"
         "1-го числа каждого месяца вы будете получать детальную сводку "
@@ -399,14 +357,7 @@ async def settings_monthly_summary_callback(
         "• 🏆 Топ категории расходов\n\n"
         "Выберите время отправки:"
     )
-    
-    keyboard = get_monthly_summary_time_keyboard()
-    
-    await update.callback_query.message.edit_text(
-        text,
-        parse_mode=HTML_PARSE_MODE,
-        reply_markup=keyboard
-    )
+    await _show_selection_menu(update, text, get_monthly_summary_time_keyboard())
 
 
 async def monthly_summary_time_callback(
@@ -437,7 +388,7 @@ async def monthly_summary_time_callback(
             await update.callback_query.answer("✅ Месячная сводка отключена")
             await settings_command(update, context)
         else:
-            await update.callback_query.answer("❌ Пользователь не найден")
+            await update.callback_query.answer(ERROR_UNKNOWN_USER_MESSAGE)
         return
     
     # Handle time selection
@@ -459,7 +410,7 @@ async def monthly_summary_time_callback(
         )
         await settings_command(update, context)
     else:
-        await update.callback_query.answer("❌ Пользователь не найден")
+        await update.callback_query.answer(ERROR_UNKNOWN_USER_MESSAGE)
 
 
 # ============================================================================
@@ -486,7 +437,7 @@ async def settings_expense_notifications_callback(
         user = await crud.get_user_by_telegram_id(session, telegram_id)
         
         if not user:
-            await query.answer("❌ Пользователь не найден")
+            await query.answer(ERROR_UNKNOWN_USER_MESSAGE)
             return
         
         # Toggle the setting

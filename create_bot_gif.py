@@ -51,13 +51,8 @@ def draw_coin(draw, x, y, radius, rotation, glow=False):
     if squeeze < 0.1:
         squeeze = 0.1
     
-    # Тень
-    shadow_offset = radius // 10
-    shadow_color = (0, 0, 0, 80)
-    
     # Свечение
     if glow:
-        glow_color = (*hex_to_rgb(COLORS['accent']), 60)
         for i in range(3):
             glow_radius = radius + (3 - i) * (radius // 5)
             draw.ellipse(
@@ -88,7 +83,6 @@ def draw_coin(draw, x, y, radius, rotation, glow=False):
     
     # Символ валюты (₽)
     if squeeze > 0.5:
-        symbol_size = int(radius * 0.8)
         # Простой символ рубля через линии
         cx, cy = x, y
         line_width = max(1, int(radius / 8))
@@ -240,11 +234,11 @@ def draw_text_logo(draw, x, y, width, height, alpha):
         # Пробуем системные шрифты
         font_main = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", main_size)
         font_sub = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", sub_size)
-    except:
+    except Exception:
         try:
             font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", main_size)
             font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", sub_size)
-        except:
+        except Exception:
             font_main = ImageFont.load_default()
             font_sub = ImageFont.load_default()
     
@@ -365,7 +359,7 @@ def create_animated_gif(width, height, filename, num_frames=30, duration=100):
         frame = create_frame(width, height, i, num_frames)
         frames.append(frame)
     
-    print(f"  Сохранение...")
+    print("  Сохранение...")
     
     # Сохраняем GIF
     frames[0].save(

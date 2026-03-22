@@ -22,6 +22,9 @@ MONTH_NAMES_RU = {
     12: "Декабрь",
 }
 
+MAX_EXPENSE_DESCRIPTION_LENGTH = 100
+TOP_CATEGORY_LIMIT = 3
+
 
 def format_month_year(month: int, year: int) -> str:
     """Return localized month + year string, e.g. 'Январь 2026'."""
@@ -115,10 +118,7 @@ def format_expense(expense: "Expense") -> str:
     
     # Third line: description (if exists)
     if expense.description:
-        # Truncate long descriptions
-        desc = expense.description
-        if len(desc) > 100:
-            desc = desc[:97] + "..."
+        desc = truncate_text(expense.description, max_length=MAX_EXPENSE_DESCRIPTION_LENGTH)
         lines.append(f"📝 {desc}")
     
     return "\n".join(lines)
@@ -189,10 +189,7 @@ def format_family_expense(expense: "Expense") -> str:
     
     # Fourth line: description (if exists)
     if expense.description:
-        # Truncate long descriptions
-        desc = expense.description
-        if len(desc) > 100:
-            desc = desc[:97] + "..."
+        desc = truncate_text(expense.description, max_length=MAX_EXPENSE_DESCRIPTION_LENGTH)
         lines.append(f"📝 {desc}")
     
     return "\n".join(lines)
@@ -276,7 +273,7 @@ def format_family_summary(summary_data: dict) -> str:
     # Add top 3 categories
     if by_category:
         lines.append("📊 <b>Топ-3 категории:</b>")
-        for cat_data in by_category[:3]:  # Only top 3
+        for cat_data in by_category[:TOP_CATEGORY_LIMIT]:
             cat_name = cat_data['category_name']
             cat_icon = cat_data['category_icon']
             amount = cat_data['amount']

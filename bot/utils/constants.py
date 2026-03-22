@@ -1,5 +1,6 @@
 """Constants for messages and mappings used across handlers."""
 
+from decimal import Decimal
 from typing import Dict
 
 # ============================================================================
@@ -15,6 +16,7 @@ ERROR_GENERIC = "❌ Произошла ошибка при обработке �
 # Telegram message settings
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 HTML_PARSE_MODE = "HTML"
+TELEGRAM_MESSAGE_NOT_MODIFIED_ERROR_TEXT = "Message is not modified"
 
 # Family Messages
 FAMILY_NAME_MIN_LENGTH = 2
@@ -107,6 +109,7 @@ TIME_MAPPING: Dict[str, str] = {
 # ============================================================================
 
 MAX_AMOUNT = "999999999.99"
+MAX_AMOUNT_DECIMAL = Decimal(MAX_AMOUNT)
 MSG_INVALID_AMOUNT = f"❌ Неверная сумма. Введите положительное число до {MAX_AMOUNT}"
 MSG_INVALID_FORMAT = "❌ Неверный формат. Введите число (например: 5000 или 5000.50)"
 

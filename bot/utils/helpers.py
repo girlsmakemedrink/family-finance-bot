@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from bot.utils.constants import HTML_PARSE_MODE
+from bot.utils.constants import HTML_PARSE_MODE, TELEGRAM_MESSAGE_NOT_MODIFIED_ERROR_TEXT
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ async def safe_edit_message(query, text: str, **kwargs):
     try:
         await query.edit_message_text(text, **kwargs)
     except BadRequest as e:
-        if "Message is not modified" not in str(e):
+        if TELEGRAM_MESSAGE_NOT_MODIFIED_ERROR_TEXT not in str(e):
             raise
         # If message is not modified, just answer the callback query
         await query.answer()
@@ -399,62 +399,27 @@ async def notify_expense_to_family(
         family_members: List of tuples (User, FamilyMember) from get_family_members
     """
     from bot.utils.formatters import format_amount
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
+    from bot.utils.keyboards import get_expense_notification_keyboard
+
     try:
-        # Get user who created the expense
-        expense_user = expense.user
-        
-        # Prepare notification message
-        message = (
-            f"💸 <b>Новый расход в семье</b>\n\n"
-            f"👤 <b>Добавил:</b> {expense_user.name}\n"
-            f"<b>Категория:</b> {expense.category.name}\n"
-            f"💰 <b>Сумма:</b> {format_amount(expense.amount)}\n"
+        message = _build_operation_notification_message(
+            title="💸 <b>Новый расход в семье</b>",
+            actor_name=expense.user.name,
+            category_name=expense.category.name,
+            amount_label="💰 <b>Сумма:</b>",
+            amount_value=format_amount(expense.amount),
+            description=expense.description,
         )
-        
-        if expense.description:
-            message += f"📝 <b>Описание:</b> {expense.description}\n"
-        
-        # Import keyboard for navigation buttons
-        from bot.utils.keyboards import get_expense_notification_keyboard
-        reply_markup = get_expense_notification_keyboard()
-        
-        # Send notification to all family members except the one who created expense
-        # family_members is a list of tuples (User, FamilyMember)
-        for user, family_member in family_members:
-            # Skip the user who created the expense
-            if user.id == expense.user_id:
-                continue
-            
-            # Check if user has notifications enabled
-            if not user.expense_notifications_enabled:
-                logger.debug(
-                    f"User {user.id} has expense notifications disabled, skipping"
-                )
-                continue
-            
-            try:
-                await bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=message,
-                    parse_mode=HTML_PARSE_MODE,
-                    reply_markup=reply_markup
-                )
-                logger.info(
-                    f"Sent expense notification to user {user.id} "
-                    f"for expense {expense.id}"
-                )
-            except Exception as e:
-                # Log error but continue sending to other members
-                # Common errors: user blocked bot, chat not found
-                logger.warning(
-                    f"Failed to send expense notification "
-                    f"to user {user.id}: {e}"
-                )
-        
+        await _notify_family_members(
+            bot=bot,
+            family_members=family_members,
+            actor_user_id=expense.user_id,
+            message=message,
+            reply_markup=get_expense_notification_keyboard(),
+            disabled_log_message="expense notifications disabled",
+            sent_log_message=f"for expense {expense.id}",
+            failed_log_prefix="expense notification",
+        )
     except Exception as e:
         logger.error(f"Error in notify_expense_to_family: {e}")
 
@@ -477,62 +442,81 @@ async def notify_income_to_family(
         family_members: List of tuples (User, FamilyMember) from get_family_members
     """
     from bot.utils.formatters import format_amount
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
+    from bot.utils.keyboards import get_income_notification_keyboard
+
     try:
-        # Get user who created the income
-        income_user = income.user
-        
-        # Prepare notification message
-        message = (
-            f"💰 <b>Новый доход в семье</b>\n\n"
-            f"👤 <b>Добавил:</b> {income_user.name}\n"
-            f"<b>Категория:</b> {income.category.name}\n"
-            f"💵 <b>Сумма:</b> {format_amount(income.amount)}\n"
+        message = _build_operation_notification_message(
+            title="💰 <b>Новый доход в семье</b>",
+            actor_name=income.user.name,
+            category_name=income.category.name,
+            amount_label="💵 <b>Сумма:</b>",
+            amount_value=format_amount(income.amount),
+            description=income.description,
         )
-        
-        if income.description:
-            message += f"📝 <b>Описание:</b> {income.description}\n"
-        
-        # Import keyboard for navigation buttons
-        from bot.utils.keyboards import get_income_notification_keyboard
-        reply_markup = get_income_notification_keyboard()
-        
-        # Send notification to all family members except the one who created income
-        # family_members is a list of tuples (User, FamilyMember)
-        for user, family_member in family_members:
-            # Skip the user who created the income
-            if user.id == income.user_id:
-                continue
-            
-            # Check if user has notifications enabled
-            if not user.expense_notifications_enabled:
-                logger.debug(
-                    f"User {user.id} has operation notifications disabled, skipping"
-                )
-                continue
-            
-            try:
-                await bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=message,
-                    parse_mode=HTML_PARSE_MODE,
-                    reply_markup=reply_markup
-                )
-                logger.info(
-                    f"Sent income notification to user {user.id} "
-                    f"for income {income.id}"
-                )
-            except Exception as e:
-                # Log error but continue sending to other members
-                # Common errors: user blocked bot, chat not found
-                logger.warning(
-                    f"Failed to send income notification "
-                    f"to user {user.id}: {e}"
-                )
-        
+        await _notify_family_members(
+            bot=bot,
+            family_members=family_members,
+            actor_user_id=income.user_id,
+            message=message,
+            reply_markup=get_income_notification_keyboard(),
+            disabled_log_message="operation notifications disabled",
+            sent_log_message=f"for income {income.id}",
+            failed_log_prefix="income notification",
+        )
     except Exception as e:
         logger.error(f"Error in notify_income_to_family: {e}")
+
+
+def _build_operation_notification_message(
+    *,
+    title: str,
+    actor_name: str,
+    category_name: str,
+    amount_label: str,
+    amount_value: str,
+    description: Optional[str],
+) -> str:
+    """Build notification text for family members about a new operation."""
+    message = (
+        f"{title}\n\n"
+        f"👤 <b>Добавил:</b> {actor_name}\n"
+        f"<b>Категория:</b> {category_name}\n"
+        f"{amount_label} {amount_value}\n"
+    )
+    if description:
+        message += f"📝 <b>Описание:</b> {description}\n"
+    return message
+
+
+async def _notify_family_members(
+    *,
+    bot,
+    family_members,
+    actor_user_id: int,
+    message: str,
+    reply_markup,
+    disabled_log_message: str,
+    sent_log_message: str,
+    failed_log_prefix: str,
+) -> None:
+    """Send notification message to all eligible family members."""
+    for user, _family_member in family_members:
+        if user.id == actor_user_id:
+            continue
+
+        if not user.expense_notifications_enabled:
+            logger.debug(f"User {user.id} has {disabled_log_message}, skipping")
+            continue
+
+        try:
+            await bot.send_message(
+                chat_id=user.telegram_id,
+                text=message,
+                parse_mode=HTML_PARSE_MODE,
+                reply_markup=reply_markup,
+            )
+            logger.info(f"Sent {failed_log_prefix} to user {user.id} {sent_log_message}")
+        except Exception as e:
+            # Log error but continue sending to other members.
+            logger.warning(f"Failed to send {failed_log_prefix} to user {user.id}: {e}")
 

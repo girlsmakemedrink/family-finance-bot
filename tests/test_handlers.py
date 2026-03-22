@@ -3,12 +3,11 @@
 import pytest
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from telegram import Update, User as TelegramUser, Message, Chat
+from telegram import Update, User as TelegramUser, Message
 from telegram.ext import ContextTypes, ConversationHandler
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.models import User, Family, FamilyMember, Category, RoleEnum, Expense
-from bot.handlers import start, family, expenses
+from bot.database.models import User, Family, FamilyMember, Expense
 
 
 class TestStartHandler:
@@ -126,7 +125,7 @@ class TestFamilyHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.family import create_family_name
-            result = await create_family_name(update, context)
+            await create_family_name(update, context)
             
             # Should confirm family creation
             update.message.reply_text.assert_called()
@@ -158,7 +157,7 @@ class TestFamilyHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.family import join_family_code
-            result = await join_family_code(update, context)
+            await join_family_code(update, context)
             
             # Should confirm joining
             update.message.reply_text.assert_called()
@@ -187,7 +186,7 @@ class TestFamilyHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.family import join_family_code
-            result = await join_family_code(update, context)
+            await join_family_code(update, context)
             
             # Should show error
             update.message.reply_text.assert_called()
@@ -223,7 +222,7 @@ class TestExpenseHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.expenses import add_expense_start
-            result = await add_expense_start(update, context)
+            await add_expense_start(update, context)
             
             # Should ask for family selection or amount
             update.message.reply_text.assert_called()
@@ -253,7 +252,7 @@ class TestExpenseHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.expenses import add_expense_amount
-            result = await add_expense_amount(update, context)
+            await add_expense_amount(update, context)
             
             # Should ask for category
             update.message.reply_text.assert_called()
@@ -283,7 +282,7 @@ class TestExpenseHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.expenses import add_expense_amount
-            result = await add_expense_amount(update, context)
+            await add_expense_amount(update, context)
             
             # Should ask again
             update.message.reply_text.assert_called()
@@ -316,7 +315,7 @@ class TestExpenseHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.expenses import view_expenses_start
-            result = await view_expenses_start(update, context)
+            await view_expenses_start(update, context)
             
             # Should show expenses or ask for family
             update.message.reply_text.assert_called()
@@ -351,7 +350,7 @@ class TestStatisticsHandlers:
             mock_get_session.return_value.__aenter__.return_value = test_session
             
             from bot.handlers.statistics import stats_start
-            result = await stats_start(update, context)
+            await stats_start(update, context)
             
             # Should show statistics or ask for family
             update.message.reply_text.assert_called()

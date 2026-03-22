@@ -3145,7 +3145,7 @@ async def get_available_periods(
         Dictionary with 'months' (list of (year, month) tuples) and 'years' (list of years)
     """
     try:
-        from sqlalchemy import func, extract
+        from sqlalchemy import extract
         
         # Build queries for expenses and incomes
         expense_filter = Expense.family_id == entity_id if is_family else Expense.user_id == entity_id

@@ -45,6 +45,9 @@ setup_logging()
 logger = get_logger(__name__)
 
 PAGE_SIZE = 10
+TOP_FAMILIES_LIMIT = 10
+DETAIL_TRANSACTIONS_LIMIT = 10
+MONTHLY_ACTIVITY_LIMIT = 12
 
 
 def _get_admin_bot_token() -> str:
@@ -288,14 +291,12 @@ async def _family_money_breakdown(
     end: Optional[datetime] = None,
 ) -> tuple[Decimal, list[tuple[str, str, Decimal]]]:
     if kind == "expense":
-        model = Expense
         cat_type = CategoryTypeEnum.EXPENSE
         amount_col = Expense.amount
         date_col = Expense.date
         family_col = Expense.family_id
         join_col = Expense.category_id
     else:
-        model = Income
         cat_type = CategoryTypeEnum.INCOME
         amount_col = Income.amount
         date_col = Income.date
@@ -352,7 +353,11 @@ def _ym_extract(date_col):
     return (func.extract("year", date_col), func.extract("month", date_col))
 
 
-async def _family_monthly_activity(session, family_id: int, months: int = 12) -> list[tuple[int, int, int]]:
+async def _family_monthly_activity(
+    session,
+    family_id: int,
+    months: int = MONTHLY_ACTIVITY_LIMIT,
+) -> list[tuple[int, int, int]]:
     now = datetime.utcnow()
     start = _month_start(now) - timedelta(days=31 * (months - 1))
     start = _month_start(start)
@@ -391,7 +396,11 @@ async def _family_monthly_activity(session, family_id: int, months: int = 12) ->
     return result[-months:]
 
 
-async def _family_last_transactions(session, family_id: int, limit: int = 10) -> list[str]:
+async def _family_last_transactions(
+    session,
+    family_id: int,
+    limit: int = DETAIL_TRANSACTIONS_LIMIT,
+) -> list[str]:
     exp_stmt = (
         select(Expense)
         .options(selectinload(Expense.user), selectinload(Expense.category))
@@ -470,23 +479,23 @@ async def family_detail_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         members = await _family_members(session, family_id)
 
         inc_all, inc_all_by_cat = await _family_money_breakdown(session, family_id, "income")
-        inc_this, inc_this_by_cat = await _family_money_breakdown(
+        inc_this, _inc_this_by_cat = await _family_money_breakdown(
             session, family_id, "income", start=this_month_start
         )
-        inc_prev, inc_prev_by_cat = await _family_money_breakdown(
+        inc_prev, _inc_prev_by_cat = await _family_money_breakdown(
             session, family_id, "income", start=prev_month_start, end=prev_month_end
         )
 
         exp_all, exp_all_by_cat = await _family_money_breakdown(session, family_id, "expense")
-        exp_this, exp_this_by_cat = await _family_money_breakdown(
+        exp_this, _exp_this_by_cat = await _family_money_breakdown(
             session, family_id, "expense", start=this_month_start
         )
-        exp_prev, exp_prev_by_cat = await _family_money_breakdown(
+        exp_prev, _exp_prev_by_cat = await _family_money_breakdown(
             session, family_id, "expense", start=prev_month_start, end=prev_month_end
         )
 
-        activity = await _family_monthly_activity(session, family_id, months=12)
-        last_tx = await _family_last_transactions(session, family_id, limit=10)
+        activity = await _family_monthly_activity(session, family_id, months=MONTHLY_ACTIVITY_LIMIT)
+        last_tx = await _family_last_transactions(session, family_id, limit=DETAIL_TRANSACTIONS_LIMIT)
 
     balance = inc_all - exp_all
 
@@ -632,7 +641,7 @@ async def search_text_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 .where(User.username.ilike(f"%{uname}%"))
                 .distinct()
                 .order_by(Family.created_at.desc())
-                .limit(10)
+                .limit(TOP_FAMILIES_LIMIT)
             )
             families = list((await session.execute(stmt)).scalars().all())
             total_found = len(families)
@@ -705,7 +714,7 @@ async def tops_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         if start:
             stmt = stmt.where(date_col >= start)
-        stmt = stmt.group_by(Family.id, Family.name).order_by(func.sum(amount_col).desc()).limit(10)
+        stmt = stmt.group_by(Family.id, Family.name).order_by(func.sum(amount_col).desc()).limit(TOP_FAMILIES_LIMIT)
         rows = (await session.execute(stmt)).all()
 
     title = "📈 <b>Топ-10 семей по расходам</b>" if kind == "exp" else "📉 <b>Топ-10 семей по доходам</b>"
