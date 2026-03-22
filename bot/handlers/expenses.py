@@ -8,6 +8,7 @@ from enum import IntEnum
 from typing import Optional, List, Dict, Tuple
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -284,16 +285,41 @@ async def answer_query_safely(query) -> None:
             logger.debug(f"Failed to answer query: {e}")
 
 
+async def edit_message_text_safely(
+    query,
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: Optional[str] = "HTML"
+):
+    """Edit callback message and ignore Telegram 'message is not modified' errors."""
+    try:
+        return await query.edit_message_text(
+            text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            logger.debug("Skipped message edit because content/markup did not change")
+            return query.message
+        raise
+
+
 async def send_or_edit_message(
     update: Update,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    parse_mode: str = "HTML"
+    parse_mode: Optional[str] = "HTML"
 ) -> None:
     """Send new message or edit existing one based on update type."""
     query = update.callback_query
     if query:
-        await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        await edit_message_text_safely(
+            query,
+            text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
     else:
         await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
 
@@ -745,7 +771,7 @@ async def family_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     if not family:
         keyboard = get_home_button()
-        await query.edit_message_text(ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
+        await edit_message_text_safely(query, ErrorMessage.FAMILY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     expense_data = ExpenseData(family_id=family_id, family_name=family.name)
@@ -794,7 +820,7 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     if not category:
         keyboard = get_home_button()
-        await query.edit_message_text(ErrorMessage.CATEGORY_NOT_FOUND, reply_markup=keyboard)
+        await edit_message_text_safely(query, ErrorMessage.CATEGORY_NOT_FOUND, reply_markup=keyboard)
         return ConversationHandler.END
     
     expense_data = ExpenseData.from_context(context)
@@ -807,7 +833,7 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         category.name
     )
     keyboard = KeyboardBuilder.build_amount_input_keyboard(context)
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=keyboard)
+    await edit_message_text_safely(query, message, parse_mode="HTML", reply_markup=keyboard)
     
     logger.info(f"User selected category {category_id} ({category.name}) for expense")
     return ConversationState.ENTER_AMOUNT
@@ -826,7 +852,12 @@ async def create_category_during_expense_start(update: Update, context: ContextT
         "Введите название новой категории (например: 'Рестораны', 'Такси', 'Спорт'):"
     )
     keyboard = add_navigation_buttons([], context, current_state="create_category_name")
-    await query.edit_message_text(message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    await edit_message_text_safely(
+        query,
+        message,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     
     logger.info(f"User started creating new category during expense addition for family {expense_data.family_id}")
     return ConversationState.CREATE_CATEGORY_NAME
@@ -948,7 +979,7 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
     if category is None:
         error_msg = f"{Emoji.ERROR} Произошла ошибка при создании категории. Попробуйте позже."
         if update.callback_query:
-            await update.callback_query.edit_message_text(error_msg)
+            await edit_message_text_safely(update.callback_query, error_msg)
         else:
             await update.message.reply_text(error_msg)
         return ConversationHandler.END
@@ -976,7 +1007,12 @@ async def create_category_emoji_received(update: Update, context: ContextTypes.D
     )
     
     if update.callback_query:
-        await update.callback_query.edit_message_text(success_msg, parse_mode="HTML", reply_markup=keyboard)
+        await edit_message_text_safely(
+            update.callback_query,
+            success_msg,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
     else:
         await update.message.reply_text(success_msg, parse_mode="HTML", reply_markup=keyboard)
     
@@ -1164,7 +1200,7 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
     if not all([user_id, expense_data.family_id, expense_data.category_id, expense_data.amount]):
         error_message = ErrorMessage.MISSING_DATA
         if update.callback_query:
-            await update.callback_query.edit_message_text(error_message)
+            await edit_message_text_safely(update.callback_query, error_message)
         else:
             await update.message.reply_text(error_message)
         return ConversationHandler.END
@@ -1194,7 +1230,7 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
     if result is None:
         error_message = f"{Emoji.ERROR} Произошла ошибка при сохранении расхода. Пожалуйста, попробуйте позже."
         if update.callback_query:
-            await update.callback_query.edit_message_text(error_message)
+            await edit_message_text_safely(update.callback_query, error_message)
         else:
             await update.message.reply_text(error_message)
         return ConversationHandler.END
@@ -1208,7 +1244,8 @@ async def description_received(update: Update, context: ContextTypes.DEFAULT_TYP
     reply_markup = get_add_another_keyboard()
     
     if update.callback_query:
-        sent_message = await update.callback_query.edit_message_text(
+        sent_message = await edit_message_text_safely(
+            update.callback_query,
             message,
             parse_mode="HTML",
             reply_markup=reply_markup
@@ -1236,7 +1273,7 @@ async def cancel_add_expense(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(message)
+        await edit_message_text_safely(update.callback_query, message, parse_mode=None)
     elif update.message:
         await update.message.reply_text(message)
     
