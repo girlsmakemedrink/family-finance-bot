@@ -10,6 +10,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from bot.utils.constants import HTML_PARSE_MODE
 from bot.utils.keyboards import get_back_button, get_help_keyboard
 from bot.utils.message_utils import MessageHandler as MsgHandler
 
@@ -147,7 +148,7 @@ async def _show_help_section(
     
     await update.callback_query.message.edit_text(
         text,
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=keyboard
     )
 

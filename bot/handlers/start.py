@@ -11,6 +11,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from bot.database import crud, get_db
 from bot.utils.constants import (
+    HTML_PARSE_MODE,
     MSG_WITHOUT_FAMILIES,
     MSG_WITH_FAMILIES,
     MSG_QUICK_ACTIONS_FOOTER,
@@ -248,7 +249,7 @@ async def _process_start_command(
             try:
                 await update.callback_query.edit_message_text(
                     welcome_message,
-                    parse_mode="HTML",
+                    parse_mode=HTML_PARSE_MODE,
                     reply_markup=reply_markup
                 )
             except BadRequest as e:
@@ -256,7 +257,7 @@ async def _process_start_command(
                 if "no text in the message" in str(e).lower():
                     await update.callback_query.message.reply_text(
                         welcome_message,
-                        parse_mode="HTML",
+                        parse_mode=HTML_PARSE_MODE,
                         reply_markup=reply_markup
                     )
                 else:
@@ -265,7 +266,7 @@ async def _process_start_command(
         elif update.message:
             await update.message.reply_text(
                 welcome_message,
-                parse_mode="HTML",
+                parse_mode=HTML_PARSE_MODE,
                 reply_markup=reply_markup
             )
             logger.info(
@@ -359,7 +360,7 @@ async def about_command(
     
     await update.message.reply_text(
         about_text,
-        parse_mode="HTML"
+        parse_mode=HTML_PARSE_MODE
     )
 
 

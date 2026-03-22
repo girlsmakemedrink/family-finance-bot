@@ -9,21 +9,41 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
 from bot.database import crud, get_db
+from bot.utils.constants import HTML_PARSE_MODE, TELEGRAM_MAX_MESSAGE_LENGTH
 from bot.utils.formatters import format_amount, format_date, format_month_year
 from bot.utils.charts import create_text_bar
-from bot.utils.helpers import get_user_id
+from bot.utils.helpers import get_user_id, split_text_by_lines
 from bot.utils.keyboards import get_home_button
 from bot.handlers.expenses import CallbackPattern, ViewData
 
 logger = logging.getLogger(__name__)
-TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+EMPTY_DASH = "—"
+ELLIPSIS = "..."
+MAX_MONTHS_TO_SHOW = 12
+MAX_EXPENSES_PER_CATEGORY = 10
+MAX_DESCRIPTION_LENGTH = 50
+TRUNCATED_DESCRIPTION_LENGTH = 47
+CHART_BAR_LENGTH = 15
+REPORT_SEPARATOR = "━━━━━━━━━━━━━━━━━━━━━━\n"
+ERROR_DATA_NOT_FOUND = "❌ Ошибка: данные не найдены"
+ERROR_PERIODS_NOT_FOUND = "❌ Нет доступных месяцев с расходами"
+ERROR_YEARS_NOT_FOUND = "❌ Нет доступных лет с расходами"
+ERROR_FETCH_DATA = "❌ Ошибка при получении данных"
+ERROR_REPORT_GENERATION = "❌ Ошибка при генерации отчета"
+MONTHLY_GENERATION_MESSAGE = "📊 Генерирую отчет..."
+YEARLY_GENERATION_MESSAGE = "📊 Генерирую годовой отчет..."
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
-async def send_long_message(update: Update, text: str, parse_mode: str = "HTML", reply_markup: InlineKeyboardMarkup = None) -> None:
+async def send_long_message(
+    update: Update,
+    text: str,
+    parse_mode: str = HTML_PARSE_MODE,
+    reply_markup: InlineKeyboardMarkup = None,
+) -> None:
     """Send a message, splitting it into multiple messages if it exceeds Telegram's limit.
     
     Args:
@@ -44,20 +64,7 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "HTML",
         await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_markup=reply_markup)
         return
     
-    # Split message into parts
-    parts = []
-    current_part = ""
-    
-    for line in text.split('\n'):
-        if len(current_part) + len(line) + 1 > TELEGRAM_MAX_MESSAGE_LENGTH:
-            if current_part:
-                parts.append(current_part)
-            current_part = line + '\n'
-        else:
-            current_part += line + '\n'
-    
-    if current_part:
-        parts.append(current_part)
+    parts = split_text_by_lines(text, TELEGRAM_MAX_MESSAGE_LENGTH)
     
     # Send each part
     for i, part in enumerate(parts):
@@ -80,6 +87,27 @@ def _build_report_type_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
     ]
     return _as_markup(keyboard)
+
+
+def _build_report_type_message(months_count: int, years_count: int) -> str:
+    """Build text shown before selecting report granularity."""
+    return (
+        "📊 <b>Выберите тип отчета:</b>\n\n"
+        f"Доступно месяцев с расходами: {months_count}\n"
+        f"Доступно лет с расходами: {years_count}"
+    )
+
+
+def _save_periods_to_context(context: ContextTypes.DEFAULT_TYPE, months: list, years: list) -> None:
+    """Save available report periods for follow-up handlers."""
+    context.user_data["dr_months"] = [(int(month.year), int(month.month)) for month in months]
+    context.user_data["dr_years"] = [int(year) for year in years]
+
+
+def _get_back_button_pattern(context: ContextTypes.DEFAULT_TYPE) -> str:
+    """Return callback pattern for 'Back' button based on report scope."""
+    is_family = context.user_data.get("dr_is_family", False)
+    return CallbackPattern.FAMILY_DETAILED_REPORT if is_family else CallbackPattern.MY_DETAILED_REPORT
 
 
 async def _get_available_expense_periods(
@@ -222,35 +250,36 @@ def format_detailed_report(summary_data: dict, period_name: str) -> str:
             message += f"💵 {format_amount(amount)} ({percentage:.1f}%)\n"
             
             # Add text bar chart
-            bar = create_text_bar(float(amount), float(max_amount), length=15)
+            bar = create_text_bar(float(amount), float(max_amount), length=CHART_BAR_LENGTH)
             message += f"{bar}\n\n"
             
             # Add detailed expenses within this category (limit to top 10)
             if expenses:
                 message += "📝 <i>Детализация:</i>\n"
                 expense_count = len(expenses)
-                for expense in expenses[:10]:  # Show max 10 expenses per category
+                for expense in expenses[:MAX_EXPENSES_PER_CATEGORY]:
                     exp_amount = expense['amount']
-                    exp_description = expense['description'] or "—"
+                    exp_description = expense['description'] or EMPTY_DASH
                     exp_date = expense['date']
                     
                     # Format date
                     date_str = format_date(exp_date)
                     
                     # Truncate long descriptions
-                    if len(exp_description) > 50:
-                        exp_description = exp_description[:47] + "..."
+                    if len(exp_description) > MAX_DESCRIPTION_LENGTH:
+                        exp_description = exp_description[:TRUNCATED_DESCRIPTION_LENGTH] + ELLIPSIS
                     
                     message += f"  • {date_str}: {format_amount(exp_amount)} - {exp_description}\n"
                 
                 # If there are more expenses, show a note
-                if expense_count > 10:
-                    message += f"  <i>... и еще {expense_count - 10} расходов</i>\n"
+                if expense_count > MAX_EXPENSES_PER_CATEGORY:
+                    remaining_count = expense_count - MAX_EXPENSES_PER_CATEGORY
+                    message += f"  <i>{ELLIPSIS} и еще {remaining_count} расходов</i>\n"
                 
                 message += "\n"
         
         # Add visual chart summary at the end
-        message += "━━━━━━━━━━━━━━━━━━━━━━\n"
+        message += REPORT_SEPARATOR
         message += "📊 <b>Диаграмма расходов:</b>\n\n"
         
         for cat_data in by_category:
@@ -258,11 +287,11 @@ def format_detailed_report(summary_data: dict, period_name: str) -> str:
             percentage = cat_data.get('percentage', 0)
             
             # Create percentage bar
-            bar = create_text_bar(percentage, 100, length=15)
+            bar = create_text_bar(percentage, 100, length=CHART_BAR_LENGTH)
             message += f"• {cat_name}\n"
             message += f"{bar} {percentage:.1f}%\n\n"
     
-    message += "━━━━━━━━━━━━━━━━━━━━━━\n"
+    message += REPORT_SEPARATOR
     
     return message
 
@@ -280,7 +309,7 @@ async def detailed_report_select_type(update: Update, context: ContextTypes.DEFA
     view_data = ViewData.from_context(context)
     
     if not all([user_id, view_data.family_id]):
-        await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
+        await query.answer(ERROR_DATA_NOT_FOUND, show_alert=True)
         return
     
     try:
@@ -290,19 +319,15 @@ async def detailed_report_select_type(update: Update, context: ContextTypes.DEFA
         )
     except Exception as e:
         logger.error(f"Error getting expense periods: {e}")
-        await query.answer("❌ Ошибка при получении данных", show_alert=True)
+        await query.answer(ERROR_FETCH_DATA, show_alert=True)
         return
     
-    # Save to context for later use
-    context.user_data['dr_months'] = [(int(m.year), int(m.month)) for m in months]
-    context.user_data['dr_years'] = [int(y) for y in years]
+    _save_periods_to_context(context, months, years)
     
     await query.edit_message_text(
-        "📊 <b>Выберите тип отчета:</b>\n\n"
-        f"Доступно месяцев с расходами: {len(months)}\n"
-        f"Доступно лет с расходами: {len(years)}",
+        _build_report_type_message(len(months), len(years)),
         reply_markup=_build_report_type_keyboard(),
-        parse_mode="HTML"
+        parse_mode=HTML_PARSE_MODE,
     )
 
 
@@ -314,26 +339,24 @@ async def detailed_report_select_month(update: Update, context: ContextTypes.DEF
     months_data = context.user_data.get('dr_months', [])
     
     if not months_data:
-        await query.answer("❌ Нет доступных месяцев с расходами", show_alert=True)
+        await query.answer(ERROR_PERIODS_NOT_FOUND, show_alert=True)
         return
     
     # Build keyboard with recent months first (reversed)
     keyboard = []
-    for year, month in reversed(months_data[-12:]):  # Show last 12 months max
+    for year, month in reversed(months_data[-MAX_MONTHS_TO_SHOW:]):
         month_name = format_month_year(month, year)
         callback_data = f"{CallbackPattern.DETAILED_REPORT_MONTH_PREFIX}{year}_{month}"
         keyboard.append([InlineKeyboardButton(month_name, callback_data=callback_data)])
     
-    # Check if it's family or personal report
-    is_family = context.user_data.get('dr_is_family', False)
-    back_button = CallbackPattern.FAMILY_DETAILED_REPORT if is_family else CallbackPattern.MY_DETAILED_REPORT
+    back_button = _get_back_button_pattern(context)
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=back_button)])
     
     await query.edit_message_text(
         "📅 <b>Выберите месяц для отчета:</b>\n\n"
         "Показаны последние 12 месяцев с расходами",
         reply_markup=_as_markup(keyboard),
-        parse_mode="HTML"
+        parse_mode=HTML_PARSE_MODE,
     )
 
 
@@ -345,7 +368,7 @@ async def detailed_report_select_year(update: Update, context: ContextTypes.DEFA
     years_data = context.user_data.get('dr_years', [])
     
     if not years_data:
-        await query.answer("❌ Нет доступных лет с расходами", show_alert=True)
+        await query.answer(ERROR_YEARS_NOT_FOUND, show_alert=True)
         return
     
     # Build keyboard with recent years first (reversed)
@@ -354,22 +377,20 @@ async def detailed_report_select_year(update: Update, context: ContextTypes.DEFA
         callback_data = f"{CallbackPattern.DETAILED_REPORT_YEAR_PREFIX}{year}"
         keyboard.append([InlineKeyboardButton(str(year), callback_data=callback_data)])
     
-    # Check if it's family or personal report
-    is_family = context.user_data.get('dr_is_family', False)
-    back_button = CallbackPattern.FAMILY_DETAILED_REPORT if is_family else CallbackPattern.MY_DETAILED_REPORT
+    back_button = _get_back_button_pattern(context)
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=back_button)])
     
     await query.edit_message_text(
         "📆 <b>Выберите год для отчета:</b>",
         reply_markup=_as_markup(keyboard),
-        parse_mode="HTML"
+        parse_mode=HTML_PARSE_MODE,
     )
 
 
 async def generate_monthly_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Generate and send detailed monthly report."""
     query = update.callback_query
-    await query.answer("📊 Генерирую отчет...")
+    await query.answer(MONTHLY_GENERATION_MESSAGE)
     
     # Parse year and month from callback data
     callback_data = query.data
@@ -379,7 +400,7 @@ async def generate_monthly_report(update: Update, context: ContextTypes.DEFAULT_
     is_family, user_id, view_data = await _resolve_report_scope(update, context)
     
     if not view_data.family_id:
-        await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
+        await query.answer(ERROR_DATA_NOT_FOUND, show_alert=True)
         return
     
     # Calculate date range for the month
@@ -406,13 +427,13 @@ async def generate_monthly_report(update: Update, context: ContextTypes.DEFAULT_
         
     except Exception as e:
         logger.error(f"Error generating monthly report: {e}", exc_info=True)
-        await query.answer("❌ Ошибка при генерации отчета", show_alert=True)
+        await query.answer(ERROR_REPORT_GENERATION, show_alert=True)
 
 
 async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Generate and send detailed yearly report."""
     query = update.callback_query
-    await query.answer("📊 Генерирую годовой отчет...")
+    await query.answer(YEARLY_GENERATION_MESSAGE)
     
     # Parse year from callback data
     callback_data = query.data
@@ -421,7 +442,7 @@ async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_T
     is_family, user_id, view_data = await _resolve_report_scope(update, context)
     
     if not view_data.family_id:
-        await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
+        await query.answer(ERROR_DATA_NOT_FOUND, show_alert=True)
         return
     
     # Calculate date range for the year
@@ -444,7 +465,7 @@ async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_T
         
     except Exception as e:
         logger.error(f"Error generating yearly report: {e}", exc_info=True)
-        await query.answer("❌ Ошибка при генерации отчета", show_alert=True)
+        await query.answer(ERROR_REPORT_GENERATION, show_alert=True)
 
 
 # ============================================================================
@@ -459,26 +480,22 @@ async def family_detailed_report_select_type(update: Update, context: ContextTyp
     view_data = ViewData.from_context(context, prefix="family_view")
     
     if not view_data.family_id:
-        await query.answer("❌ Ошибка: данные не найдены", show_alert=True)
+        await query.answer(ERROR_DATA_NOT_FOUND, show_alert=True)
         return
     
     try:
         months, years = await _get_available_expense_periods(family_id=view_data.family_id)
     except Exception as e:
         logger.error(f"Error getting family expense periods: {e}")
-        await query.answer("❌ Ошибка при получении данных", show_alert=True)
+        await query.answer(ERROR_FETCH_DATA, show_alert=True)
         return
     
-    # Save to context for later use
-    context.user_data['dr_months'] = [(int(m.year), int(m.month)) for m in months]
-    context.user_data['dr_years'] = [int(y) for y in years]
+    _save_periods_to_context(context, months, years)
     context.user_data['dr_is_family'] = True
     
     await query.edit_message_text(
-        "📊 <b>Выберите тип отчета:</b>\n\n"
-        f"Доступно месяцев с расходами: {len(months)}\n"
-        f"Доступно лет с расходами: {len(years)}",
+        _build_report_type_message(len(months), len(years)),
         reply_markup=_build_report_type_keyboard(),
-        parse_mode="HTML"
+        parse_mode=HTML_PARSE_MODE,
     )
 

@@ -16,6 +16,7 @@ from telegram.ext import (
 )
 
 from bot.database import CategoryTypeEnum, crud
+from bot.utils.constants import ERROR_USER_NOT_REGISTERED, HTML_PARSE_MODE
 from bot.utils.helpers import (
     answer_query_safely as shared_answer_query_safely,
     end_conversation_silently,
@@ -105,7 +106,7 @@ class Emoji:
 
 class ErrorMessage:
     """Error messages."""
-    NOT_REGISTERED = f"{Emoji.ERROR} Вы не зарегистрированы. Используйте команду /start для регистрации."
+    NOT_REGISTERED = ERROR_USER_NOT_REGISTERED
     NO_FAMILIES = f"{Emoji.ERROR} У вас нет семей.\n\nСоздайте семью или присоединитесь к существующей, чтобы управлять категориями."
     NO_CATEGORIES_EDIT = f"{Emoji.ERROR} У вас нет категорий для редактирования."
     NO_CATEGORIES_DELETE = f"{Emoji.ERROR} У вас нет категорий для удаления."
@@ -183,7 +184,7 @@ async def send_or_edit_message(
     update: Update,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
-    parse_mode: str = "HTML"
+    parse_mode: str = HTML_PARSE_MODE
 ) -> None:
     """Send new message or edit existing one."""
     query = update.callback_query
@@ -652,7 +653,7 @@ async def add_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     message = MessageBuilder.build_category_type_prompt("Добавление новой категории")
     keyboard = KeyboardBuilder.build_category_type_keyboard(context, current_state="add_category")
-    await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
+    await safe_edit_message(query, message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.ADD_SELECT_TYPE
 
@@ -674,7 +675,7 @@ async def add_category_select_type(update: Update, context: ContextTypes.DEFAULT
     
     message = MessageBuilder.build_add_category_name_prompt(selected_type)
     keyboard = KeyboardBuilder._wrap_with_navigation([], context, current_state="add_category")
-    await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
+    await safe_edit_message(query, message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     
     return ConversationState.ADD_ENTER_NAME
 
@@ -712,7 +713,7 @@ async def add_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     message = MessageBuilder.build_add_category_confirmation(name, cat_data.category_type)
     keyboard = KeyboardBuilder.build_confirmation_keyboard(context)
-    await update.message.reply_text(message, reply_markup=keyboard, parse_mode="HTML")
+    await update.message.reply_text(message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.ADD_CONFIRM
 
@@ -742,7 +743,7 @@ async def add_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
         await safe_edit_message(query, ErrorMessage.CREATE_ERROR, reply_markup=keyboard)
     else:
         message = MessageBuilder.build_category_created_message(cat_data.name, cat_data.category_type)
-        await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
+        await safe_edit_message(query, message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         logger.info(f"Created category {category.id} for family {cat_data.family_id}")
     
     cat_data.clear_from_context(context, "add_cat")
@@ -778,7 +779,7 @@ async def edit_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     message = MessageBuilder.build_category_type_prompt("Редактирование категории")
     keyboard = KeyboardBuilder.build_category_type_keyboard(context, current_state="edit_category")
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.EDIT_SELECT_TYPE
 
@@ -819,7 +820,7 @@ async def edit_category_select_type(update: Update, context: ContextTypes.DEFAUL
         context,
         "edit_category"
     )
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.EDIT_SELECT_CATEGORY
 
@@ -846,7 +847,7 @@ async def edit_category_select(update: Update, context: ContextTypes.DEFAULT_TYP
     
     message = MessageBuilder.build_edit_enter_name_prompt(category.name)
     keyboard = KeyboardBuilder._wrap_with_navigation([], context, current_state="edit_category")
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.EDIT_ENTER_NAME
 
@@ -890,7 +891,7 @@ async def edit_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return ConversationState.EDIT_ENTER_NAME
         
         message = MessageBuilder.build_category_updated_message(category.name)
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=keyboard)
+        await update.message.reply_text(message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         logger.info(f"Updated category {cat_data.category_id} name to '{name}'")
     
     cat_data.clear_from_context(context, "edit_cat")
@@ -926,7 +927,7 @@ async def delete_category_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     message = MessageBuilder.build_category_type_prompt("Удаление категории")
     keyboard = KeyboardBuilder.build_category_type_keyboard(context, current_state="delete_category")
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.DELETE_SELECT_TYPE
 
@@ -967,7 +968,7 @@ async def delete_category_select_type(update: Update, context: ContextTypes.DEFA
         context,
         "delete_category"
     )
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.DELETE_SELECT_CATEGORY
 
@@ -1013,13 +1014,13 @@ async def delete_category_select(update: Update, context: ContextTypes.DEFAULT_T
             income_count
         )
         keyboard = KeyboardBuilder.build_delete_with_expenses_keyboard(context)
-        await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+        await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
         return ConversationState.DELETE_SELECT_TARGET
     else:
         # No expenses, can delete directly
         message = MessageBuilder.build_delete_confirm_no_expenses(category.name)
         keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
-        await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+        await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
         return ConversationState.DELETE_CONFIRM
 
 
@@ -1066,7 +1067,7 @@ async def delete_category_choose_move(update: Update, context: ContextTypes.DEFA
         context,
         "delete_target"
     )
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     return ConversationState.DELETE_SELECT_TARGET
 
 
@@ -1103,7 +1104,7 @@ async def delete_category_select_target(update: Update, context: ContextTypes.DE
         income_count
     )
     keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.DELETE_CONFIRM
 
@@ -1136,7 +1137,7 @@ async def delete_category_with_expenses(update: Update, context: ContextTypes.DE
         income_count
     )
     keyboard = KeyboardBuilder.build_delete_confirmation_keyboard(context)
-    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(query, message, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.DELETE_CONFIRM
 
@@ -1211,7 +1212,7 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
             deleted_income_count,
             target_name
         )
-        await safe_edit_message(query, message, parse_mode="HTML", reply_markup=keyboard)
+        await safe_edit_message(query, message, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         logger.info(
             f"Deleted category {cat_data.category_id}, moved expenses={moved_expense_count}, "
             f"moved incomes={moved_income_count}, deleted expenses={deleted_expense_count}, "

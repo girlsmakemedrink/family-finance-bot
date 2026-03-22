@@ -9,13 +9,14 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 from bot.database import crud, get_db
+from bot.utils.constants import HTML_PARSE_MODE, TELEGRAM_MAX_MESSAGE_LENGTH
 from bot.utils.formatters import format_amount, format_month_year
+from bot.utils.helpers import split_text_by_lines
 
 logger = logging.getLogger(__name__)
-TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 
 
-async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str = "HTML") -> None:
+async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str = HTML_PARSE_MODE) -> None:
     """Send a message, splitting it into multiple messages if it exceeds Telegram's limit.
     
     Args:
@@ -28,20 +29,7 @@ async def send_long_message(bot: Bot, chat_id: int, text: str, parse_mode: str =
         await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
         return
     
-    # Split message into parts
-    parts = []
-    current_part = ""
-    
-    for line in text.split('\n'):
-        if len(current_part) + len(line) + 1 > TELEGRAM_MAX_MESSAGE_LENGTH:
-            if current_part:
-                parts.append(current_part)
-            current_part = line + '\n'
-        else:
-            current_part += line + '\n'
-    
-    if current_part:
-        parts.append(current_part)
+    parts = split_text_by_lines(text, TELEGRAM_MAX_MESSAGE_LENGTH)
     
     # Send each part
     for part in parts:
@@ -73,7 +61,7 @@ async def send_monthly_summary(bot: Bot, user, summary_data: dict, month_name: s
             await bot.send_message(
                 chat_id=user.telegram_id,
                 text=message,
-                parse_mode="HTML"
+                parse_mode=HTML_PARSE_MODE,
             )
             logger.info(f"Sent monthly summary to user {user.id} ({user.telegram_id}) - no operations")
             return
@@ -112,7 +100,7 @@ async def send_monthly_summary(bot: Bot, user, summary_data: dict, month_name: s
             document=html_file,
             filename=filename,
             caption=caption,
-            parse_mode="HTML"
+            parse_mode=HTML_PARSE_MODE,
         )
         
         logger.info(f"Sent monthly summary HTML report to user {user.id} ({user.telegram_id})")

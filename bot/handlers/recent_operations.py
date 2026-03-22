@@ -8,6 +8,7 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from bot.database import crud, get_db
+from bot.utils.constants import ERROR_USER_NOT_REGISTERED, HTML_PARSE_MODE
 from bot.utils.formatters import format_amount, format_datetime, truncate_text
 from bot.utils.helpers import get_user_id
 from bot.utils.keyboards import get_home_button
@@ -16,6 +17,31 @@ logger = logging.getLogger(__name__)
 
 
 CALLBACK_RECENT_OPS = "recent_ops"
+RECENT_OPERATIONS_LIMIT = 10
+TRUNCATED_DESCRIPTION_LENGTH = 80
+RECENT_OPERATIONS_TITLE = "🕘 <b>Мои последние операции</b>"
+
+
+async def _reply_or_edit(
+    update: Update,
+    query,
+    text: str,
+    reply_markup: InlineKeyboardMarkup,
+    parse_mode: Optional[str] = None,
+) -> None:
+    """Reply to message or edit callback message with preserved branch order."""
+    if query:
+        if parse_mode is None:
+            await query.edit_message_text(text, reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        return
+
+    if update.message:
+        if parse_mode is None:
+            await update.message.reply_text(text, reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
 
 
 def _pick_family_scope(
@@ -42,23 +68,19 @@ def _pick_family_scope(
 
 
 async def recent_operations_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show last 10 operations for current user."""
+    """Show last recent operations for current user."""
     query = update.callback_query
     if query:
         await query.answer()
 
     user_id = await get_user_id(update, context)
     if not user_id:
-        if query:
-            await query.edit_message_text(
-                "❌ Вы не зарегистрированы. Используйте команду /start для регистрации.",
-                reply_markup=get_home_button(),
-            )
-        elif update.message:
-            await update.message.reply_text(
-                "❌ Вы не зарегистрированы. Используйте команду /start для регистрации.",
-                reply_markup=get_home_button(),
-            )
+        await _reply_or_edit(
+            update,
+            query,
+            ERROR_USER_NOT_REGISTERED,
+            reply_markup=get_home_button(),
+        )
         return
 
     async for session in get_db():
@@ -66,15 +88,18 @@ async def recent_operations_show(update: Update, context: ContextTypes.DEFAULT_T
             families = await crud.get_user_families(session, user_id)
             if not families:
                 text = (
-                    "🕘 <b>Мои последние операции</b>\n"
-                    "<i>(показываю последние 10)</i>\n\n"
+                    f"{RECENT_OPERATIONS_TITLE}\n"
+                    f"<i>(показываю последние {RECENT_OPERATIONS_LIMIT})</i>\n\n"
                     "❌ Вы не состоите ни в одной семье.\n"
                     "Сначала создайте семью или присоединитесь к существующей."
                 )
-                if query:
-                    await query.edit_message_text(text, parse_mode="HTML", reply_markup=get_home_button())
-                elif update.message:
-                    await update.message.reply_text(text, parse_mode="HTML", reply_markup=get_home_button())
+                await _reply_or_edit(
+                    update,
+                    query,
+                    text,
+                    reply_markup=get_home_button(),
+                    parse_mode=HTML_PARSE_MODE,
+                )
                 return
 
             family_ids, label, single_family_id = _pick_family_scope(context, families)
@@ -83,12 +108,12 @@ async def recent_operations_show(update: Update, context: ContextTypes.DEFAULT_T
                 session,
                 user_id=user_id,
                 family_ids=family_ids,
-                limit=10,
+                limit=RECENT_OPERATIONS_LIMIT,
             )
 
             lines: list[str] = [
-                "🕘 <b>Мои последние операции</b>",
-                "<i>(показываю последние 10)</i>",
+                RECENT_OPERATIONS_TITLE,
+                f"<i>(показываю последние {RECENT_OPERATIONS_LIMIT})</i>",
                 f"📌 Область: <b>{html.escape(label)}</b>",
                 "",
             ]
@@ -116,7 +141,7 @@ async def recent_operations_show(update: Update, context: ContextTypes.DEFAULT_T
 
                     desc = op.get("description")
                     if desc:
-                        safe_desc = html.escape(truncate_text(str(desc), max_length=80))
+                        safe_desc = html.escape(truncate_text(str(desc), max_length=TRUNCATED_DESCRIPTION_LENGTH))
                         lines.append(f"   📝 {safe_desc}")
 
                     lines.append("")
@@ -124,20 +149,25 @@ async def recent_operations_show(update: Update, context: ContextTypes.DEFAULT_T
             text = "\n".join(lines).strip()
             reply_markup = get_home_button()
 
-            if query:
-                await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
-            elif update.message:
-                await update.message.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
+            await _reply_or_edit(
+                update,
+                query,
+                text,
+                reply_markup=reply_markup,
+                parse_mode=HTML_PARSE_MODE,
+            )
 
             logger.info("Shown recent operations to user_id=%s (ops=%s)", user_id, len(operations))
             return
         except Exception as e:
             logger.error("Error showing recent operations: %s", e, exc_info=True)
             text = "❌ Произошла ошибка при загрузке операций. Попробуйте позже."
-            if query:
-                await query.edit_message_text(text, reply_markup=get_home_button())
-            elif update.message:
-                await update.message.reply_text(text, reply_markup=get_home_button())
+            await _reply_or_edit(
+                update,
+                query,
+                text,
+                reply_markup=get_home_button(),
+            )
             return
 
 

@@ -16,6 +16,11 @@ from telegram.ext import (
 )
 
 from bot.database import crud, get_db
+from bot.utils.constants import (
+    ERROR_USER_NOT_REGISTERED,
+    HTML_PARSE_MODE,
+    TELEGRAM_MAX_MESSAGE_LENGTH,
+)
 from bot.utils.formatters import format_amount, format_date, format_month_year
 from bot.utils.charts import create_category_chart
 from bot.utils.helpers import (
@@ -25,6 +30,7 @@ from bot.utils.helpers import (
     extract_id_from_callback as shared_extract_id_from_callback,
     get_user_id,
     handle_db_operation as shared_handle_db_operation,
+    split_text_by_lines,
 )
 from bot.utils.keyboards import add_navigation_buttons, get_back_button, get_home_button
 
@@ -104,7 +110,7 @@ class Emoji:
 
 class ErrorMessage:
     """Error messages."""
-    NOT_REGISTERED = f"{Emoji.ERROR} Вы не зарегистрированы. Используйте команду /start для регистрации."
+    NOT_REGISTERED = ERROR_USER_NOT_REGISTERED
     NO_FAMILIES = f"{Emoji.ERROR} У вас нет семей. Создайте семью командой /create_family или присоединитесь к существующей через /join_family."
     FAMILY_NOT_FOUND = f"{Emoji.ERROR} Семья не найдена."
     NO_PERIODS = f"{Emoji.ERROR} Нет доступных периодов с операциями."
@@ -528,15 +534,15 @@ async def stats_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     
     if query:
         try:
-            await query.message.edit_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+            await query.message.edit_text(message_text, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
         except BadRequest as e:
             # Handle case when message has no text (e.g., media message with caption)
             if "no text in the message" in str(e).lower():
-                await query.message.reply_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+                await query.message.reply_text(message_text, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
             else:
                 raise
     else:
-        await update.message.reply_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+        await update.message.reply_text(message_text, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.SELECT_TYPE
 
@@ -793,7 +799,7 @@ async def show_basic_statistics(query, context: ContextTypes.DEFAULT_TYPE) -> in
     )
     
     keyboard = KeyboardBuilder.build_stats_view_keyboard(context)
-    await query.edit_message_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+    await query.edit_message_text(message_text, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.VIEW_STATS
 
@@ -849,29 +855,15 @@ async def stats_show_detailed_report(update: Update, context: ContextTypes.DEFAU
     )
     
     # Check message length and split if necessary
-    MAX_MESSAGE_LENGTH = 4096
-    if len(message_text) > MAX_MESSAGE_LENGTH:
-        # Split message into parts
-        parts = []
-        current_part = ""
-        
-        for line in message_text.split('\n'):
-            if len(current_part) + len(line) + 1 > MAX_MESSAGE_LENGTH:
-                if current_part:
-                    parts.append(current_part)
-                current_part = line + '\n'
-            else:
-                current_part += line + '\n'
-        
-        if current_part:
-            parts.append(current_part)
+    if len(message_text) > TELEGRAM_MAX_MESSAGE_LENGTH:
+        parts = split_text_by_lines(message_text, TELEGRAM_MAX_MESSAGE_LENGTH)
         
         # Send first part with edit
-        await query.edit_message_text(parts[0].strip(), parse_mode='HTML')
+        await query.edit_message_text(parts[0].strip(), parse_mode=HTML_PARSE_MODE)
         
         # Send remaining parts as new messages
         for part in parts[1:]:
-            await query.message.reply_text(part.strip(), parse_mode='HTML')
+            await query.message.reply_text(part.strip(), parse_mode=HTML_PARSE_MODE)
         
         # Send final message with keyboard
         keyboard = KeyboardBuilder.build_detailed_view_keyboard(context)
@@ -881,7 +873,7 @@ async def stats_show_detailed_report(update: Update, context: ContextTypes.DEFAU
         )
     else:
         keyboard = KeyboardBuilder.build_detailed_view_keyboard(context)
-        await query.edit_message_text(message_text, reply_markup=keyboard, parse_mode='HTML')
+        await query.edit_message_text(message_text, reply_markup=keyboard, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.VIEW_STATS
 
@@ -967,7 +959,7 @@ async def stats_export_html_handler(update: Update, context: ContextTypes.DEFAUL
                 f"{Emoji.CALENDAR} Период: {period_name}\n\n"
                 f"{Emoji.DOCUMENT} Откройте файл в браузере для просмотра"
             ),
-            parse_mode='HTML',
+            parse_mode=HTML_PARSE_MODE,
             reply_markup=keyboard
         )
         

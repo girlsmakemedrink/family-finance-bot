@@ -12,6 +12,10 @@ ERROR_USER_NOT_FOUND = "❌ Ошибка: пользователь не найд
 ERROR_TEXT_INPUT_REQUIRED = "❌ Пожалуйста, введите текстовое название семьи."
 ERROR_GENERIC = "❌ Произошла ошибка при обработке запроса. Пожалуйста, попробуйте позже."
 
+# Telegram message settings
+TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+HTML_PARSE_MODE = "HTML"
+
 # Family Messages
 FAMILY_NAME_MIN_LENGTH = 2
 FAMILY_NAME_MAX_LENGTH = 100

@@ -71,14 +71,8 @@ class FamilyFinanceBot:
             add_expense_handler,
             view_expenses_handler,
             family_expenses_handler,
-            # family_export_handler,  # Export moved to statistics section
-            # family_export_csv_handler,  # CSV export removed
-            # family_export_gdocs_handler,  # Export moved to statistics section
             family_grouping_handler,
             family_pagination_handler,
-            # my_export_handler,  # Export moved to statistics section
-            # my_export_csv_handler,  # CSV export removed
-            # my_export_gdocs_handler,  # Export moved to statistics section
             pagination_handler,
         )
         from bot.handlers.incomes import add_income_handler
@@ -245,8 +239,6 @@ class FamilyFinanceBot:
         # Register enhanced error handler
         app.add_error_handler(enhanced_error_handler)
         app.add_error_handler(error_handler)
-        
-        # TODO: Add inline query handlers
         
         logger.info("Bot setup completed")
     

@@ -16,6 +16,7 @@ from telegram.ext import (
 )
 
 from bot.database import crud, get_db
+from bot.utils.constants import HTML_PARSE_MODE
 from bot.utils.helpers import (
     answer_query_safely as shared_answer_query_safely,
     end_conversation_silently,
@@ -313,9 +314,9 @@ async def family_settings_command(update: Update, context: ContextTypes.DEFAULT_
         
         if update.callback_query:
             await answer_query_safely(update.callback_query)
-            await message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+            await message.edit_text(text, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
         else:
-            await message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+            await message.reply_text(text, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
 
 
 async def show_family_settings(
@@ -357,9 +358,9 @@ async def show_family_settings(
     
     if update.callback_query:
         await answer_query_safely(update.callback_query)
-        await message.edit_text(settings_text, parse_mode="HTML", reply_markup=keyboard)
+        await message.edit_text(settings_text, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
     else:
-        await message.reply_text(settings_text, parse_mode="HTML", reply_markup=keyboard)
+        await message.reply_text(settings_text, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
 
 
 async def family_settings_select_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -392,7 +393,7 @@ async def family_rename_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.callback_query.answer()
     
     text = MessageBuilder.build_rename_prompt()
-    await update.callback_query.message.edit_text(text, parse_mode="HTML")
+    await update.callback_query.message.edit_text(text, parse_mode=HTML_PARSE_MODE)
     
     return ConversationState.RENAME_FAMILY
 
@@ -447,7 +448,7 @@ async def family_rename_process(update: Update, context: ContextTypes.DEFAULT_TY
     
     await update.message.reply_text(
         MessageBuilder.build_rename_success_message(new_name),
-        parse_mode="HTML",
+        parse_mode=HTML_PARSE_MODE,
         reply_markup=keyboard
     )
     
@@ -525,7 +526,7 @@ async def family_manage_members_callback(update: Update, context: ContextTypes.D
     
     text = MessageBuilder.build_members_list_message(members)
     keyboard = get_back_button(CallbackPattern.FAMILY_SETTINGS)
-    await update.callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await update.callback_query.message.edit_text(text, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
 
 
 async def family_leave_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -537,7 +538,7 @@ async def family_leave_callback(update: Update, context: ContextTypes.DEFAULT_TY
     
     text = MessageBuilder.build_leave_confirmation_message()
     keyboard = get_confirmation_keyboard(CallbackPattern.CONFIRM_LEAVE_FAMILY, CallbackPattern.FAMILY_SETTINGS)
-    await update.callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await update.callback_query.message.edit_text(text, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
 
 
 async def confirm_leave_family_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -586,7 +587,7 @@ async def family_delete_callback(update: Update, context: ContextTypes.DEFAULT_T
     
     text = MessageBuilder.build_delete_confirmation_message()
     keyboard = get_confirmation_keyboard(CallbackPattern.CONFIRM_DELETE_FAMILY, CallbackPattern.FAMILY_SETTINGS)
-    await update.callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await update.callback_query.message.edit_text(text, parse_mode=HTML_PARSE_MODE, reply_markup=keyboard)
 
 
 async def confirm_delete_family_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
