@@ -9,6 +9,7 @@ import warnings
 from typing import Optional
 
 from telegram.ext import Application
+from telegram.request import HTTPXRequest
 from telegram.warnings import PTBUserWarning
 
 from config.settings import settings
@@ -47,10 +48,18 @@ class FamilyFinanceBot:
             logger.error(f"Failed to initialize database: {e}", exc_info=True)
             raise
         
-        # Build the application
+        # Build the application with explicit timeouts to handle slow connections
+        request = HTTPXRequest(
+            connection_pool_size=8,
+            connect_timeout=30.0,
+            read_timeout=30.0,
+            write_timeout=30.0,
+            pool_timeout=30.0,
+        )
         self.application = (
             Application.builder()
             .token(self.token)
+            .request(request)
             .build()
         )
         app = self.application
