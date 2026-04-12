@@ -7,6 +7,7 @@ from typing import Optional
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import TimedOut, NetworkError
 from telegram.ext import ContextTypes
 
 from config.settings import settings
@@ -148,6 +149,14 @@ async def error_handler(
         update: Telegram update object (may be None)
         context: Telegram context object containing the error
     """
+    # Ignore transient network errors silently
+    if isinstance(context.error, TimedOut):
+        logger.warning("Telegram API timed out — skipping error notification")
+        return
+    if isinstance(context.error, NetworkError):
+        logger.warning(f"Network error: {context.error} — skipping error notification")
+        return
+
     # Log the error with full traceback
     logger.error("Exception while handling an update:", exc_info=context.error)
     
